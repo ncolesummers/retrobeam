@@ -44,7 +44,10 @@ mix precommit          # Compile (warnings-as-errors), unlock unused deps, forma
 - Real-time features use Phoenix PubSub + LiveView (no external message broker)
 - Oban handles async AI report generation (ai_reports queue, concurrency: 2)
 - Anthropic API calls go through Req
-- Auth will use `phx.gen.auth` with bcrypt (E1-S2)
+- Authentication uses `phx.gen.auth` with magic-link registration and bcrypt password hashing
+- `@current_scope` (not `@current_user`) is available in assigns — wraps the user via `Accounts.Scope`
+- LiveViews use `on_mount` hooks in `RetrobeamWeb.UserAuth` for auth (`:ensure_authenticated`, `:mount_current_scope`)
+- Authenticated LiveViews go in `live_session :authenticated` in the router
 
 ## Testing
 

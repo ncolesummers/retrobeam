@@ -56,7 +56,7 @@ This demo validates the architectural thesis from our research: Phoenix Channels
 | **Background Jobs** | Oban 2.18+ | Postgres-only, ACID-compliant job processing for AI report generation |
 | **AI Integration** | Anthropic API (Claude) | Post-retro summary generation, card grouping suggestions |
 | **HTTP Client** | Req 0.5+ | Elixir-native HTTP client for Anthropic API calls |
-| **Authentication** | phx_gen_auth + bcrypt | Phoenix generator for session-based auth with password hashing |
+| **Authentication** | phx.gen.auth (magic links + optional password) | Phoenix 1.8 generator with magic-link registration and bcrypt password hashing |
 | **Deployment** | Fly.io + Docker | Global edge deployment, built-in Postgres, easy clustering |
 | **CSS / UI** | Tailwind CSS 4.0 + DaisyUI 4.x | Utility-first styling with DaisyUI component library; both ship with Phoenix generators by default |
 | **Testing** | ExUnit + Wallaby | Unit/integration with ExUnit, browser testing with Wallaby |
@@ -84,8 +84,8 @@ The application is organized into six modules, each representing a cohesive area
 
 Handles user registration, login, and session management. Provides the identity layer that Presence and card authorship depend on.
 
-- User registration with email and password
-- Session-based authentication via phx_gen_auth
+- User registration with email (magic link, no password required at registration)
+- Session-based authentication via phx_gen_auth (optional password via settings)
 - User profile with display name and avatar color (auto-assigned)
 - Protected routes requiring authentication
 
@@ -303,13 +303,14 @@ Foundation setup including Phoenix project generation, database configuration, a
 
 **Acceptance Criteria:**
 
-1. `mix phx.gen.auth Accounts User users` generates auth scaffolding
+1. `mix phx.gen.auth Accounts User users` generates auth scaffolding (Phoenix 1.8 magic-link default)
 2. User schema includes additional fields: `display_name` (string, required) and `avatar_color` (string, auto-assigned from a preset palette)
-3. Registration form collects email, password, and display_name
-4. Login redirects to `/retros` (the retro dashboard, can be a placeholder page)
+3. Registration form collects email and display_name; user receives a magic-link email to confirm and log in
+4. After clicking the magic link, user is confirmed and redirected to `/retros` (the retro dashboard)
 5. All routes under `/retros/*` require authentication via the generated plug pipeline
 6. Unauthenticated access to protected routes redirects to `/users/log_in`
-7. Tests: registration with valid/invalid data, login/logout flow, protected route redirect
+7. Users can optionally set a password via the settings page for password-based login
+8. Tests: registration with valid/invalid data, login/logout flow, protected route redirect
 
 ---
 
