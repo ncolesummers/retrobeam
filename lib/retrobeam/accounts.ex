@@ -77,6 +77,8 @@ defmodule Retrobeam.Accounts do
   def register_user(attrs) do
     %User{}
     |> User.email_changeset(attrs)
+    |> User.profile_changeset(attrs)
+    |> Ecto.Changeset.put_change(:avatar_color, User.random_avatar_color())
     |> Repo.insert()
   end
 

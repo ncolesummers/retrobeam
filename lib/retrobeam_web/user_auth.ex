@@ -194,7 +194,7 @@ defmodule RetrobeamWeb.UserAuth do
     end
   end
 
-  defp signed_in_path(_conn), do: ~p"/"
+  defp signed_in_path(_conn), do: ~p"/retros"
 
   @doc """
   Plug for routes that require the user to be authenticated.
@@ -216,4 +216,41 @@ defmodule RetrobeamWeb.UserAuth do
   end
 
   defp maybe_store_return_to(conn), do: conn
+
+  @doc """
+  LiveView on_mount hook that assigns current_scope from the session token.
+
+  Used in live_session to make @current_scope available in LiveViews.
+  """
+  def on_mount(:ensure_authenticated, _params, session, socket) do
+    socket = mount_current_scope(session, socket)
+
+    if socket.assigns.current_scope && socket.assigns.current_scope.user do
+      {:cont, socket}
+    else
+      socket =
+        socket
+        |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
+        |> Phoenix.LiveView.redirect(to: ~p"/users/log-in")
+
+      {:halt, socket}
+    end
+  end
+
+  def on_mount(:mount_current_scope, _params, session, socket) do
+    {:cont, mount_current_scope(session, socket)}
+  end
+
+  defp mount_current_scope(session, socket) do
+    Phoenix.Component.assign_new(socket, :current_scope, fn ->
+      if user_token = session["user_token"] do
+        case Accounts.get_user_by_session_token(user_token) do
+          {user, _token_inserted_at} -> Scope.for_user(user)
+          nil -> Scope.for_user(nil)
+        end
+      else
+        Scope.for_user(nil)
+      end
+    end)
+  end
 end

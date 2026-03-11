@@ -49,10 +49,11 @@ defmodule Retrobeam.AccountsTest do
   end
 
   describe "register_user/1" do
-    test "requires email to be set" do
+    test "requires email and display_name to be set" do
       {:error, changeset} = Accounts.register_user(%{})
 
-      assert %{email: ["can't be blank"]} = errors_on(changeset)
+      assert %{email: ["can't be blank"], display_name: ["can't be blank"]} =
+               errors_on(changeset)
     end
 
     test "validates email when given" do
@@ -84,6 +85,25 @@ defmodule Retrobeam.AccountsTest do
       assert is_nil(user.hashed_password)
       assert is_nil(user.confirmed_at)
       assert is_nil(user.password)
+    end
+
+    test "registers user with display_name and auto-assigns avatar_color" do
+      attrs = valid_user_attributes(display_name: "Alice")
+      {:ok, user} = Accounts.register_user(attrs)
+      assert user.display_name == "Alice"
+      assert user.avatar_color in User.avatar_colors()
+    end
+
+    test "rejects display_name shorter than 2 characters" do
+      attrs = valid_user_attributes(display_name: "A")
+      {:error, changeset} = Accounts.register_user(attrs)
+      assert "should be at least 2 character(s)" in errors_on(changeset).display_name
+    end
+
+    test "rejects display_name longer than 50 characters" do
+      attrs = valid_user_attributes(display_name: String.duplicate("a", 51))
+      {:error, changeset} = Accounts.register_user(attrs)
+      assert "should be at most 50 character(s)" in errors_on(changeset).display_name
     end
   end
 

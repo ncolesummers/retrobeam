@@ -60,6 +60,10 @@ defmodule RetrobeamWeb.Router do
     get "/users/settings", UserSettingsController, :edit
     put "/users/settings", UserSettingsController, :update
     get "/users/settings/confirm-email/:token", UserSettingsController, :confirm_email
+
+    live_session :authenticated, on_mount: [{RetrobeamWeb.UserAuth, :ensure_authenticated}] do
+      live "/retros", RetroLive.Index, :index
+    end
   end
 
   scope "/", RetrobeamWeb do

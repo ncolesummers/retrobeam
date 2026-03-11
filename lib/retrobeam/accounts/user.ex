@@ -2,14 +2,42 @@ defmodule Retrobeam.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @avatar_colors ~w(
+    #EF4444 #F97316 #F59E0B #10B981
+    #06B6D4 #3B82F6 #6366F1 #8B5CF6
+    #A855F7 #EC4899 #F43F5E #14B8A6
+  )
+
   schema "users" do
     field :email, :string
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
+    field :display_name, :string
+    field :avatar_color, :string
 
     timestamps(type: :utc_datetime)
+  end
+
+  @doc """
+  Returns a random avatar color from the preset palette.
+  """
+  def random_avatar_color, do: Enum.random(@avatar_colors)
+
+  @doc """
+  Returns the list of available avatar colors.
+  """
+  def avatar_colors, do: @avatar_colors
+
+  @doc """
+  A user changeset for the profile fields (display_name).
+  """
+  def profile_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:display_name])
+    |> validate_required([:display_name])
+    |> validate_length(:display_name, min: 2, max: 50)
   end
 
   @doc """
