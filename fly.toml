@@ -1,0 +1,56 @@
+# fly.toml — Fly.io application configuration for RetroBeam
+#
+# See https://fly.io/docs/reference/configuration/ for full reference.
+#
+# To deploy:   fly deploy
+# To open:     fly open
+# To logs:     fly logs
+# To status:   fly status
+
+app = "retrobeam"
+primary_region = "ord"
+
+[build]
+
+# Non-secret environment variables. Secrets (DATABASE_URL, SECRET_KEY_BASE, etc.)
+# are set via `fly secrets set` and injected at runtime.
+[env]
+  PHX_HOST = "retrobeam.fly.dev"
+  PORT = "8080"
+  ECTO_IPV6 = "true"
+
+# Fly proxies external HTTPS (port 443) to your app's internal_port.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+# Single shared-CPU machine with 1GB RAM (sufficient for demo scale ~50 users).
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+# Health check — Fly pings this endpoint to determine if the app is alive.
+# Returns 200 when the Ecto repo can connect to Postgres.
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8080
+    path = "/healthz"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+
+# Run Ecto migrations automatically before each deploy.
+# This calls rel/overlays/bin/migrate which invokes Retrobeam.Release.migrate/0.
+[deploy]
+  release_command = "/app/bin/migrate"

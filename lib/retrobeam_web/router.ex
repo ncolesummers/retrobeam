@@ -18,6 +18,12 @@ defmodule RetrobeamWeb.Router do
   end
 
   scope "/", RetrobeamWeb do
+    pipe_through :api
+
+    get "/healthz", HealthController, :index
+  end
+
+  scope "/", RetrobeamWeb do
     pipe_through :browser
 
     get "/", PageController, :home
