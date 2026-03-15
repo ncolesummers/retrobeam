@@ -27,7 +27,7 @@ defmodule Retrobeam.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [precommit: :test, ci: :test]
     ]
   end
 
@@ -90,7 +90,15 @@ defmodule Retrobeam.MixProject do
         "esbuild retrobeam --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      ci: [
+        "compile --warnings-as-errors",
+        "deps.unlock --check-unused",
+        "format --check-formatted",
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "test --raise"
+      ]
     ]
   end
 end
