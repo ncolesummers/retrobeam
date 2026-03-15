@@ -55,3 +55,35 @@ mix precommit          # Compile (warnings-as-errors), unlock unused deps, forma
 - Oban runs inline in test env (`testing: :inline`)
 - Use `Ecto.Adapters.SQL.Sandbox` for DB isolation
 - `DataCase` for context tests, `ConnCase` for controller/LiveView tests
+
+## Design Context
+
+### Users
+Software development teams running sprint retrospectives. Two primary roles: **facilitators** (create and guide retros) and **team members** (contribute cards, vote, discuss). Users arrive in a work context but need the interface to feel like a safe, encouraging space for honest feedback — not another corporate tool. Key upcoming UI patterns: card boards with columns, presence indicators, timers, and voting.
+
+### Brand Personality
+**Collaborative, Encouraging, Forward-looking.** Professional but warm — the tone of a good facilitator who makes space for honest reflection while keeping energy positive. Never preachy, never cold, never frivolous.
+
+### Aesthetic Direction
+**Bold & Vibrant** with an **indigo/blue primary** palette. Inspired by **Linear** (clean task management, confident UI, strong information hierarchy) and **Vercel** (bold typography, decisive spacing, dark mode done right). The design should feel modern, confident, and purposeful — like a tool built by people who care about craft.
+
+**Anti-references:**
+- No childish/toy-like aesthetics (no cartoonish illustrations, excessive emojis, kindergarten colors)
+- No generic SaaS template feel (no cookie-cutter Bootstrap, no stock photo hero sections)
+- No over-designed/flashy elements (no gratuitous animations, glassmorphism trends, style over substance)
+
+### Design Principles
+1. **Clarity over decoration** — Every element earns its place. Strong hierarchy, purposeful color, no visual noise.
+2. **Confidence through craft** — Bold typography, decisive spacing, polished details. The UI should feel intentional, not tentative.
+3. **Warmth without whimsy** — Friendly enough for honest conversation, professional enough for work. Rounded corners and warm accents, but no cute gimmicks.
+4. **Accessible by default** — WCAG AAA target (7:1 contrast ratios). Design for keyboard navigation, screen readers, reduced motion, and color blindness from the start.
+5. **Dark mode as a first-class citizen** — Both themes should feel designed, not derived. Dark mode isn't just inverted colors.
+
+### Design Tokens (daisyUI)
+- **Primary**: Indigo/blue — the core action color for buttons, links, focus states
+- **Secondary**: Warm amber/gold — for interactive accents, highlights, facilitator badges
+- **Accent**: Violet/purple — for special highlights, votes, notifications
+- **Base**: Warm neutrals with slight warmth — approachable without being beige
+- **Semantic**: Info (blue), Success (green), Warning (amber), Error (red) — harmonized with palette
+- **Radius**: `--radius-box: 0.75rem` for friendlier card feel; `--radius-field: 0.375rem` for inputs
+- **Typography**: System font stack, strong size hierarchy, generous line-height for readability
