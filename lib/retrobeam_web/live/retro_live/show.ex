@@ -254,7 +254,12 @@ defmodule RetrobeamWeb.RetroLive.Show do
     end
   end
 
-  def handle_event("validate_options", %{"retro_session" => params}, socket) do
+  def handle_event(
+        "validate_options",
+        %{"retro_session" => params},
+        %{assigns: %{options_form: %Phoenix.HTML.Form{}}} = socket
+      ) do
+    # Only while the options form is shown: the facilitator, during Setup.
     form =
       socket.assigns.retro
       |> Retros.change_options(params)
@@ -263,6 +268,10 @@ defmodule RetrobeamWeb.RetroLive.Show do
 
     {:noreply, assign(socket, :options_form, form)}
   end
+
+  # A late change event after Setup ended, or one pushed by someone who
+  # isn't the facilitator: keep the read-only options as they are.
+  def handle_event("validate_options", _params, socket), do: {:noreply, socket}
 
   def handle_event("save_options", %{"retro_session" => params}, socket) do
     %{current_scope: scope, retro: retro} = socket.assigns
@@ -372,6 +381,7 @@ defmodule RetrobeamWeb.RetroLive.Show do
   defp error_message(:final_phase), do: "This is the last phase."
   defp error_message(:not_in_summary), do: "You can finish the retro from the Summary phase."
   defp error_message(:not_found), do: "That retro doesn't exist."
+  defp error_message(:unavailable), do: "That didn't save. Try again in a moment."
 
   # Once the socket is connected, register with the retro's session process
   # and listen for its events. The server's cached state is the source of

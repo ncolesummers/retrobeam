@@ -96,6 +96,26 @@ defmodule RetrobeamWeb.RetroLive.PhasesTest do
     assert has_element?(view, "#retro-options", "7")
   end
 
+  test "options change events are ignored outside the facilitator's Setup form", %{
+    conn: conn,
+    participant_conn: participant_conn,
+    retro: retro
+  } do
+    params = %{"retro_session" => %{"vote_limit" => "9"}}
+
+    # A participant pushes a crafted event: no editable form appears.
+    {:ok, participant, _html} = live(participant_conn, ~p"/retros/#{retro}")
+    render_change(participant, "validate_options", params)
+    refute has_element?(participant, "#options-form")
+
+    # A late change after the facilitator moved on: still read-only.
+    {:ok, view, _html} = live(conn, ~p"/retros/#{retro}")
+    view |> element("#next-phase") |> render_click()
+    render_change(view, "validate_options", params)
+    refute has_element?(view, "#options-form")
+    assert has_element?(view, "#retro-options", "5")
+  end
+
   test "invalid options are shown on submit", %{conn: conn, retro: retro} do
     {:ok, view, _html} = live(conn, ~p"/retros/#{retro}")
 
@@ -113,7 +133,7 @@ defmodule RetrobeamWeb.RetroLive.PhasesTest do
     {:ok, _} = Retros.update_options(scope, retro.id, %{"vote_limit" => "4"})
 
     # The retro moves on (say, from another tab) and an old form is submitted.
-    {:ok, _} = Retros.advance_phase(scope, retro.id)
+    {:ok, _} = Retros.advance_phase(scope, retro.id, :setup)
 
     assert render_submit(view, "save_options", %{"retro_session" => %{"vote_limit" => "3"}}) =~
              "Options lock once the retro leaves Setup."
@@ -125,7 +145,8 @@ defmodule RetrobeamWeb.RetroLive.PhasesTest do
     scope: scope,
     retro: retro
   } do
-    for _ <- 1..5, do: {:ok, _} = Retros.advance_phase(scope, retro.id)
+    for phase <- ~w(setup collect group vote discuss)a,
+        do: {:ok, _} = Retros.advance_phase(scope, retro.id, phase)
 
     {:ok, view, _html} = live(conn, ~p"/retros/#{retro}")
     {:ok, participant, _html} = live(participant_conn, ~p"/retros/#{retro}")

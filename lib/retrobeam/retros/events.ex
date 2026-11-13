@@ -24,10 +24,17 @@ defmodule Retrobeam.Retros.Events do
 
   ## Events
 
-  @doc "The retro moved to a new phase. Carries the updated retro."
+  @doc """
+  The retro moved to a new phase. Carries the whole updated retro, not just
+  the phase, so subscribers can render it without another query: match
+  `{:phase_changed, %RetroSession{phase: phase}}`.
+  """
   def phase_changed(%Retrobeam.Retros.RetroSession{} = retro), do: {:phase_changed, retro}
 
-  @doc "The retro's options or `ended_at` changed. Carries the updated retro."
+  @doc """
+  The retro's Setup options or `ended_at` changed. Carries the whole updated
+  retro: `{:retro_updated, %RetroSession{}}`.
+  """
   def retro_updated(%Retrobeam.Retros.RetroSession{} = retro), do: {:retro_updated, retro}
 
   ## PubSub

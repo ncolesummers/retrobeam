@@ -145,9 +145,10 @@ defmodule Retrobeam.Retros do
   end
 
   @doc """
-  Moves the retro to its next phase. See `RetroServer.advance_phase/3`.
+  Moves the retro to its next phase. `expected` is the phase the caller
+  saw. See `RetroServer.advance_phase/3`.
   """
-  def advance_phase(%Scope{} = scope, retro_id, expected \\ nil),
+  def advance_phase(%Scope{} = scope, retro_id, expected),
     do: RetroServer.advance_phase(retro_id, scope, expected)
 
   @doc """

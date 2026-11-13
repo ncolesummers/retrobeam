@@ -25,7 +25,7 @@ defmodule Retrobeam.Retros.PhasesTest do
       if current.retro.phase == phase do
         {:halt, current.retro}
       else
-        {:ok, _} = Retros.advance_phase(scope, retro.id)
+        {:ok, _} = Retros.advance_phase(scope, retro.id, current.retro.phase)
         {:cont, nil}
       end
     end)
@@ -44,11 +44,13 @@ defmodule Retrobeam.Retros.PhasesTest do
         assert Repo.get!(RetroSession, retro.id).phase == to
       end
 
-      assert {:error, :final_phase} = Retros.advance_phase(scope, retro.id)
+      assert {:error, :final_phase} = Retros.advance_phase(scope, retro.id, :summary)
     end
 
     test "records started_at when leaving Setup", %{scope: scope, retro: retro} do
-      assert {:ok, %RetroSession{started_at: %DateTime{}}} = Retros.advance_phase(scope, retro.id)
+      assert {:ok, %RetroSession{started_at: %DateTime{}}} =
+               Retros.advance_phase(scope, retro.id, :setup)
+
       assert Repo.get!(RetroSession, retro.id).started_at
     end
 
@@ -62,13 +64,42 @@ defmodule Retrobeam.Retros.PhasesTest do
       assert Repo.get!(RetroSession, retro.id).phase == :collect
     end
 
+    test "rejects any phase but the current one, including ones further back", %{
+      scope: scope,
+      retro: retro
+    } do
+      advance_to(scope, retro, :vote)
+
+      for stale <- [:setup, :collect, :group, :discuss, nil] do
+        assert {:error, :stale_phase} = Retros.advance_phase(scope, retro.id, stale)
+      end
+
+      assert Repo.get!(RetroSession, retro.id).phase == :vote
+    end
+
+    test "a restarted server picks up the persisted phase and options", %{
+      scope: scope,
+      retro: retro
+    } do
+      {:ok, _} = Retros.update_options(scope, retro.id, %{"vote_limit" => "7"})
+      {:ok, _} = Retros.advance_phase(scope, retro.id, :setup)
+
+      pid = RetroServer.whereis(retro.id)
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+
+      assert {:ok, %{retro: %{phase: :collect, vote_limit: 7}}} = RetroServer.get_state(retro.id)
+      assert {:ok, %{phase: :group}} = Retros.advance_phase(scope, retro.id, :collect)
+    end
+
     test "rejects participants", %{participant: participant, retro: retro} do
-      assert {:error, :unauthorized} = Retros.advance_phase(participant, retro.id)
+      assert {:error, :unauthorized} = Retros.advance_phase(participant, retro.id, :setup)
       assert Repo.get!(RetroSession, retro.id).phase == :setup
     end
 
     test "returns not found for unknown retros", %{scope: scope} do
-      assert {:error, :not_found} = Retros.advance_phase(scope, -1)
+      assert {:error, :not_found} = Retros.advance_phase(scope, -1, :setup)
     end
 
     test "next_phase/1 and advance_phase_changeset/1" do
@@ -127,7 +158,7 @@ defmodule Retrobeam.Retros.PhasesTest do
     end
 
     test "locks options after Setup", %{scope: scope, retro: retro} do
-      {:ok, _} = Retros.advance_phase(scope, retro.id)
+      {:ok, _} = Retros.advance_phase(scope, retro.id, :setup)
 
       assert {:error, :locked} = Retros.update_options(scope, retro.id, %{"vote_limit" => "3"})
     end
@@ -152,7 +183,7 @@ defmodule Retrobeam.Retros.PhasesTest do
       assert Repo.get!(RetroSession, retro.id).ended_at
 
       assert {:error, :ended} = Retros.finish_retro(scope, retro.id)
-      assert {:error, :ended} = Retros.advance_phase(scope, retro.id)
+      assert {:error, :ended} = Retros.advance_phase(scope, retro.id, :summary)
       assert {:error, :ended} = Retros.update_options(scope, retro.id, %{})
     end
 

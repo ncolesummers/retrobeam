@@ -129,18 +129,24 @@ defmodule Retrobeam.Retros.RetroServer do
   @doc """
   Moves the retro to its next phase. Only the facilitator may do this.
 
-  Phases only move forward, one step at a time. Pass the phase the caller
-  saw as `expected` so a double click or two facilitator tabs cannot skip a
-  phase: if the retro has already moved on, the call returns
-  `{:error, :stale_phase}`.
+  Phases only move forward, one step at a time. `expected` is the phase the
+  caller saw and is required, so a double click, two facilitator tabs or a
+  retried call cannot skip a phase: if the retro has already moved on, the
+  call returns `{:error, :stale_phase}`.
 
-  On success the phase is written to Postgres and `{:phase_changed, phase}`
-  is broadcast.
+  On success the phase is written to Postgres and
+  `{:phase_changed, %RetroSession{}}` is broadcast with the updated retro.
   """
-  @spec advance_phase(integer(), Scope.t(), RetroSession.phase() | nil) ::
+  @spec advance_phase(integer(), Scope.t(), RetroSession.phase()) ::
           {:ok, RetroSession.t()}
-          | {:error, :not_found | :unauthorized | :ended | :final_phase | :stale_phase}
-  def advance_phase(retro_id, %Scope{} = scope, expected \\ nil),
+          | {:error,
+             :not_found
+             | :unavailable
+             | :unauthorized
+             | :ended
+             | :final_phase
+             | :stale_phase}
+  def advance_phase(retro_id, %Scope{} = scope, expected),
     do: change_call(retro_id, {:advance_phase, scope.user.id, expected})
 
   @doc """
@@ -152,7 +158,8 @@ defmodule Retrobeam.Retros.RetroServer do
   """
   @spec update_options(integer(), Scope.t(), map()) ::
           {:ok, RetroSession.t()}
-          | {:error, Ecto.Changeset.t() | :not_found | :unauthorized | :ended | :locked}
+          | {:error,
+             Ecto.Changeset.t() | :not_found | :unavailable | :unauthorized | :ended | :locked}
   def update_options(retro_id, %Scope{} = scope, attrs),
     do: change_call(retro_id, {:update_options, scope.user.id, attrs})
 
@@ -164,7 +171,7 @@ defmodule Retrobeam.Retros.RetroServer do
   """
   @spec finish(integer(), Scope.t()) ::
           {:ok, RetroSession.t()}
-          | {:error, :not_found | :unauthorized | :ended | :not_in_summary}
+          | {:error, :not_found | :unavailable | :unauthorized | :ended | :not_in_summary}
   def finish(retro_id, %Scope{} = scope), do: change_call(retro_id, {:finish, scope.user.id})
 
   # A server can stop between the lookup and the call. Then start a fresh
@@ -287,7 +294,7 @@ defmodule Retrobeam.Retros.RetroServer do
     retro = server.state.retro
 
     cond do
-      expected not in [nil, retro.phase] ->
+      expected != retro.phase ->
         {:reply, {:error, :stale_phase}, server}
 
       is_nil(RetroSession.next_phase(retro.phase)) ->
@@ -296,8 +303,7 @@ defmodule Retrobeam.Retros.RetroServer do
       true ->
         retro
         |> RetroSession.advance_phase_changeset()
-        |> Repo.update!()
-        |> commit(server, &Events.phase_changed/1)
+        |> write(server, &Events.phase_changed/1)
     end
   end
 
@@ -305,10 +311,9 @@ defmodule Retrobeam.Retros.RetroServer do
     retro = server.state.retro
 
     if retro.phase == :setup do
-      case retro |> RetroSession.options_changeset(attrs) |> Repo.update() do
-        {:ok, retro} -> commit(retro, server, &Events.retro_updated/1)
-        {:error, changeset} -> {:reply, {:error, changeset}, server}
-      end
+      retro
+      |> RetroSession.options_changeset(attrs)
+      |> write(server, &Events.retro_updated/1)
     else
       {:reply, {:error, :locked}, server}
     end
@@ -320,11 +325,27 @@ defmodule Retrobeam.Retros.RetroServer do
     if retro.phase == :summary do
       retro
       |> RetroSession.finish_changeset()
-      |> Repo.update!()
-      |> commit(server, &Events.retro_updated/1)
+      |> write(server, &Events.retro_updated/1)
     else
       {:reply, {:error, :not_in_summary}, server}
     end
+  end
+
+  # Writes the change, then updates the cache and broadcasts. A failed write
+  # leaves the cached state as it was and replies with the error, so the
+  # server and the caller's LiveView stay up.
+  defp write(changeset, server, event) do
+    case safe_update(changeset) do
+      {:ok, retro} -> commit(retro, server, event)
+      {:error, reason} -> {:reply, {:error, reason}, server}
+    end
+  end
+
+  defp safe_update(changeset) do
+    Repo.update(changeset)
+  rescue
+    # Postgres unreachable or timed out.
+    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :unavailable}
   end
 
   defp commit(%RetroSession{} = retro, server, event) do
