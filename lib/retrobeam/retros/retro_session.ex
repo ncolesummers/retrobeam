@@ -36,6 +36,24 @@ defmodule Retrobeam.Retros.RetroSession do
   @doc "The phases of a retro, in order."
   def phases, do: @phases
 
+  @type phase :: :setup | :collect | :group | :vote | :discuss | :summary
+  @type t :: %__MODULE__{}
+
+  @doc """
+  The phase after `phase`, or nil for the last phase.
+
+      iex> Retrobeam.Retros.RetroSession.next_phase(:setup)
+      :collect
+      iex> Retrobeam.Retros.RetroSession.next_phase(:summary)
+      nil
+  """
+  def next_phase(phase) do
+    case Enum.drop_while(@phases, &(&1 != phase)) do
+      [^phase, next | _] -> next
+      _ -> nil
+    end
+  end
+
   @doc "A human-readable label for a phase."
   def phase_label(:setup), do: "Setup"
   def phase_label(:collect), do: "Collect"
@@ -91,6 +109,33 @@ defmodule Retrobeam.Retros.RetroSession do
       changeset
     end
   end
+
+  @doc """
+  Changeset for the facilitator's Setup options.
+  """
+  def options_changeset(session, attrs) do
+    session
+    |> cast(attrs, [:vote_limit, :allow_multiple_votes, :anonymous, :hide_cards_during_collect])
+    |> validate_required([:vote_limit])
+    |> validate_number(:vote_limit, greater_than_or_equal_to: 1, less_than_or_equal_to: 20)
+    |> check_constraint(:vote_limit, name: :vote_limit_range, message: "must be between 1 and 20")
+  end
+
+  @doc """
+  Changeset that moves the retro to its next phase. Leaving Setup records
+  `started_at`.
+  """
+  def advance_phase_changeset(%__MODULE__{phase: phase} = session) do
+    next = next_phase(phase) || raise ArgumentError, "#{inspect(phase)} is the last phase"
+    changeset = change(session, phase: next)
+
+    if phase == :setup,
+      do: put_change(changeset, :started_at, DateTime.utc_now(:second)),
+      else: changeset
+  end
+
+  @doc "Changeset that finishes the retro."
+  def finish_changeset(session), do: change(session, ended_at: DateTime.utc_now(:second))
 
   defp validate_custom_columns(changeset) do
     case get_field(changeset, :template) do

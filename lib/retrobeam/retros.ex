@@ -10,7 +10,7 @@ defmodule Retrobeam.Retros do
 
   alias Retrobeam.Accounts.Scope
   alias Retrobeam.Repo
-  alias Retrobeam.Retros.{JoinCode, JoinLimiter, RetroParticipation, RetroSession}
+  alias Retrobeam.Retros.{JoinCode, JoinLimiter, RetroParticipation, RetroServer, RetroSession}
 
   @join_code_attempts 5
 
@@ -143,6 +143,30 @@ defmodule Retrobeam.Retros do
       _ -> {:error, :not_found}
     end
   end
+
+  @doc """
+  Moves the retro to its next phase. `expected` is the phase the caller
+  saw. See `RetroServer.advance_phase/3`.
+  """
+  def advance_phase(%Scope{} = scope, retro_id, expected),
+    do: RetroServer.advance_phase(retro_id, scope, expected)
+
+  @doc """
+  Returns a changeset for the Setup options form.
+  """
+  def change_options(%RetroSession{} = retro, attrs \\ %{}),
+    do: RetroSession.options_changeset(retro, attrs)
+
+  @doc """
+  Updates the retro's Setup options. See `RetroServer.update_options/3`.
+  """
+  def update_options(%Scope{} = scope, retro_id, attrs),
+    do: RetroServer.update_options(retro_id, scope, attrs)
+
+  @doc """
+  Finishes the retro, making it read-only. See `RetroServer.finish/2`.
+  """
+  def finish_retro(%Scope{} = scope, retro_id), do: RetroServer.finish(retro_id, scope)
 
   @doc """
   Returns true when the scope's user is the retro's facilitator.
