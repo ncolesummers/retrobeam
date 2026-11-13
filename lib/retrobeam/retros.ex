@@ -93,6 +93,35 @@ defmodule Retrobeam.Retros do
   end
 
   @doc """
+  Joins the retro with `code` as a participant.
+
+  The code is matched ignoring case and surrounding whitespace. Joining a
+  retro again, or the facilitator joining their own retro, changes nothing.
+  Ended retros can be joined; they open read-only.
+
+  Returns `{:ok, retro}` or `{:error, :not_found}`.
+  """
+  def join_retro(%Scope{user: user}, code) do
+    code = JoinCode.normalize(code)
+
+    with true <- JoinCode.valid?(code),
+         %RetroSession{} = session <- Repo.get_by(RetroSession, join_code: code) do
+      {:ok, _participation} =
+        %RetroParticipation{retro_session_id: session.id}
+        |> RetroParticipation.changeset(%{
+          user_id: user.id,
+          role: :participant,
+          joined_at: DateTime.utc_now(:second)
+        })
+        |> Repo.insert(on_conflict: :nothing, conflict_target: [:user_id, :retro_session_id])
+
+      {:ok, session}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
   Returns true when the scope's user is the retro's facilitator.
   """
   def facilitator?(%Scope{user: user}, %RetroSession{facilitator_id: facilitator_id}),

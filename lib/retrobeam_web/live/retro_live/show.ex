@@ -27,6 +27,53 @@ defmodule RetrobeamWeb.RetroLive.Show do
         </:actions>
       </.header>
 
+      <div
+        :if={RetroSession.ended?(@retro)}
+        id="retro-ended"
+        role="status"
+        class="alert alert-info alert-soft"
+      >
+        <.icon name="hero-lock-closed" class="size-5" />
+        <span>This retro is finished. You can look, but nothing can change.</span>
+      </div>
+
+      <div :if={!RetroSession.ended?(@retro)} class="flex flex-wrap items-end gap-2">
+        <label for="join-link" class="w-full text-sm leading-6 text-base-content/70 sm:w-auto">
+          Join link
+        </label>
+        <input
+          id="join-link"
+          type="text"
+          value={@join_url}
+          readonly
+          class="input input-sm min-w-0 flex-1 font-mono"
+        />
+        <button
+          id="copy-join-link"
+          type="button"
+          phx-hook=".CopyJoinLink"
+          data-text={@join_url}
+          class="btn btn-primary btn-soft btn-sm"
+        >
+          <.icon name="hero-clipboard-document" class="size-4" /> Copy link
+        </button>
+        <span id="copy-join-link-status" aria-live="polite" class="text-sm text-base-content/70">
+        </span>
+      </div>
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".CopyJoinLink">
+        export default {
+          mounted() {
+            const status = document.getElementById("copy-join-link-status")
+            this.el.addEventListener("click", () => {
+              navigator.clipboard.writeText(this.el.dataset.text).then(
+                () => { status.textContent = "Copied" },
+                () => { status.textContent = "Copy failed. Select the link and copy it." }
+              )
+            })
+          }
+        }
+      </script>
+
       <div id="retro-columns" class={["grid gap-4", grid_class(length(@retro.columns))]}>
         <section
           :for={column <- @retro.columns}
@@ -54,16 +101,14 @@ defmodule RetrobeamWeb.RetroLive.Show do
         {:ok,
          socket
          |> assign(:page_title, retro.title)
+         |> assign(:join_url, url(~p"/retros/join/#{retro.join_code}"))
          |> assign(:retro, retro)}
 
-      {:error, :not_participant, _retro} ->
+      {:error, :not_participant, retro} ->
         {:ok,
          socket
-         |> put_flash(
-           :error,
-           "You haven't joined that retro. Ask the facilitator for its join code."
-         )
-         |> push_navigate(to: ~p"/retros")}
+         |> put_flash(:info, "Join this retro to take part.")
+         |> push_navigate(to: ~p"/retros/join/#{retro.join_code}")}
 
       {:error, :not_found} ->
         {:ok,
