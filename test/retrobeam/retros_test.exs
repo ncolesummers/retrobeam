@@ -75,6 +75,32 @@ defmodule Retrobeam.RetrosTest do
       assert participation.joined_at
     end
 
+    test "a failed child insert rolls back the whole retro", %{scope: scope} do
+      changeset =
+        RetroSession.create_changeset(
+          %RetroSession{},
+          valid_retro_attributes(),
+          scope.user.id,
+          JoinCode.generate()
+        )
+
+      # Two facilitator rows for the same user: the retro and its columns are
+      # written first, then the second participation hits the unique index.
+      participation = %RetroParticipation{
+        user_id: scope.user.id,
+        role: :facilitator,
+        joined_at: DateTime.utc_now(:second)
+      }
+
+      changeset =
+        Ecto.Changeset.put_assoc(changeset, :participations, [participation, participation])
+
+      assert_raise Ecto.ConstraintError, fn -> Repo.insert(changeset) end
+      assert Repo.aggregate(RetroSession, :count) == 0
+      assert Repo.aggregate(RetroColumn, :count) == 0
+      assert Repo.aggregate(RetroParticipation, :count) == 0
+    end
+
     test "rejects invalid custom columns and writes nothing", %{scope: scope} do
       assert {:error, changeset} =
                Retros.create_retro(scope, %{
@@ -190,10 +216,7 @@ defmodule Retrobeam.RetrosTest do
       retro = retro_fixture(scope)
       outsider = user_scope_fixture()
 
-      assert {:error, :not_participant, %RetroSession{id: id}} =
-               Retros.fetch_retro(outsider, retro.id)
-
-      assert id == retro.id
+      assert {:error, :not_found} = Retros.fetch_retro(outsider, retro.id)
     end
 
     test "returns not found for unknown or malformed ids", %{scope: scope} do
@@ -201,6 +224,9 @@ defmodule Retrobeam.RetrosTest do
       assert {:error, :not_found} = Retros.fetch_retro(scope, "abc")
       assert {:error, :not_found} = Retros.fetch_retro(scope, "1abc")
       assert {:error, :not_found} = Retros.fetch_retro(scope, nil)
+      assert {:error, :not_found} = Retros.fetch_retro(scope, 0)
+      assert {:error, :not_found} = Retros.fetch_retro(scope, "99999999999999999999")
+      assert {:error, :not_found} = Retros.fetch_retro(scope, 9_223_372_036_854_775_808)
     end
   end
 
@@ -246,6 +272,53 @@ defmodule Retrobeam.RetrosTest do
       assert {:error, :not_found} = Retros.join_retro(joiner, "ZZZZZZ")
       assert {:error, :not_found} = Retros.join_retro(joiner, "ABC")
       assert {:error, :not_found} = Retros.join_retro(joiner, nil)
+    end
+
+    test "limits failed attempts per user", %{retro: retro, joiner: joiner} do
+      for _ <- 1..10, do: assert({:error, :not_found} = Retros.join_retro(joiner, "ZZZZZZ"))
+
+      assert {:error, :rate_limited} = Retros.join_retro(joiner, "ZZZZZZ")
+      # Even the right code is refused until the window ends.
+      assert {:error, :rate_limited} = Retros.join_retro(joiner, retro.join_code)
+
+      # Other users are unaffected.
+      assert {:ok, _} = Retros.join_retro(user_scope_fixture(), retro.join_code)
+    end
+
+    test "limits failed attempts per IP address across users", %{retro: retro} do
+      ip = "203.0.113.#{System.unique_integer([:positive])}"
+      # A per-call limit, so other tests sharing the config aren't affected.
+      opts = [ip: ip, limits: [ip_limit: 3]]
+
+      for _ <- 1..3 do
+        assert {:error, :not_found} = Retros.join_retro(user_scope_fixture(), "ZZZZZZ", opts)
+      end
+
+      assert {:error, :rate_limited} =
+               Retros.join_retro(user_scope_fixture(), retro.join_code, opts)
+
+      assert {:ok, _} =
+               Retros.join_retro(user_scope_fixture(), retro.join_code,
+                 ip: "198.51.100.1",
+                 limits: [ip_limit: 3]
+               )
+    end
+
+    test "successful joins don't count against the limit", %{retro: retro, joiner: joiner} do
+      for _ <- 1..15, do: assert({:ok, _} = Retros.join_retro(joiner, retro.join_code))
+    end
+
+    test "a retro deleted before the insert is not found, not a crash", %{joiner: joiner} do
+      changeset =
+        %RetroParticipation{retro_session_id: -1}
+        |> RetroParticipation.changeset(%{
+          user_id: joiner.user.id,
+          role: :participant,
+          joined_at: DateTime.utc_now(:second)
+        })
+
+      assert {:error, changeset} = Repo.insert(changeset)
+      assert "does not exist" in errors_on(changeset).retro_session_id
     end
   end
 

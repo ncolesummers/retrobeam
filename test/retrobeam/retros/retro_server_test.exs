@@ -33,18 +33,24 @@ defmodule Retrobeam.Retros.RetroServerTest do
         end
       end)
 
-    assert_receive {:joined, ^pid, state}
+    assert_receive {:joined, ^pid, state}, 1_000
     {pid, state}
   end
 
+  # Tests that need a server to stay put keep a viewer joined: with none,
+  # the 100 ms test idle timer could stop it between steps on a slow runner.
+
   test "starts on demand and registers by retro id", %{retro: retro} do
     assert RetroServer.whereis(retro.id) == nil
-    assert {:ok, pid} = RetroServer.ensure_started(retro.id)
-    assert RetroServer.whereis(retro.id) == pid
+    {_viewer, _state} = spawn_viewer(retro.id)
+    pid = RetroServer.whereis(retro.id)
+    assert is_pid(pid)
     assert {:ok, ^pid} = RetroServer.ensure_started(retro.id)
   end
 
   test "concurrent ensure_started calls share one server", %{retro: retro} do
+    {_viewer, _state} = spawn_viewer(retro.id)
+
     pids =
       1..25
       |> Task.async_stream(fn _ -> RetroServer.ensure_started(retro.id) end, max_concurrency: 25)
@@ -53,6 +59,35 @@ defmodule Retrobeam.Retros.RetroServerTest do
 
     assert [pid] = pids
     assert RetroServer.whereis(retro.id) == pid
+  end
+
+  test "broadcasts when it starts, so viewers can join again after a crash", %{retro: retro} do
+    :ok = Events.subscribe(retro.id)
+    {:ok, pid} = RetroServer.ensure_started(retro.id)
+    retro_id = retro.id
+    assert_receive {:retro_server_started, ^retro_id}
+
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert await_exit(ref, pid) == :killed
+
+    # The supervisor restarts it, and the restart announces itself too.
+    assert_receive {:retro_server_started, ^retro_id}
+  end
+
+  test "join/2 picks up people who joined by code after the server started", %{
+    retro: retro
+  } do
+    {viewer, state} = spawn_viewer(retro.id)
+    assert length(state.participants) == 1
+
+    joiner = user_fixture()
+
+    {:ok, _} =
+      Retrobeam.Retros.join_retro(Retrobeam.Accounts.Scope.for_user(joiner), retro.join_code)
+
+    {:ok, state} = RetroServer.join(retro.id, viewer)
+    assert Enum.map(state.participants, & &1.user_id) |> Enum.member?(joiner.id)
   end
 
   test "returns not found for an unknown retro" do
@@ -133,7 +168,8 @@ defmodule Retrobeam.Retros.RetroServerTest do
   end
 
   test "stale idle timers are ignored", %{retro: retro} do
-    {:ok, server} = RetroServer.ensure_started(retro.id)
+    {_viewer, _state} = spawn_viewer(retro.id)
+    server = RetroServer.whereis(retro.id)
     send(server, {:idle_stop, make_ref()})
     assert {:ok, _state} = RetroServer.get_state(retro.id)
     assert RetroServer.whereis(retro.id) == server
