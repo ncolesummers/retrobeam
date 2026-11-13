@@ -30,6 +30,15 @@ defmodule Retrobeam.Retros.Events do
   @doc "The retro's options or `ended_at` changed. Carries the updated retro."
   def retro_updated(%Retrobeam.Retros.RetroSession{} = retro), do: {:retro_updated, retro}
 
+  @doc "A card was added. Carries the card with its author preloaded."
+  def card_created(%Retrobeam.Retros.Card{} = card), do: {:card_created, card}
+
+  @doc "A card's body changed."
+  def card_updated(%Retrobeam.Retros.Card{} = card), do: {:card_updated, card}
+
+  @doc "A card was deleted. Carries the deleted card, so its column is known."
+  def card_deleted(%Retrobeam.Retros.Card{} = card), do: {:card_deleted, card}
+
   ## PubSub
 
   @doc "Subscribes the calling process to a retro's board events."

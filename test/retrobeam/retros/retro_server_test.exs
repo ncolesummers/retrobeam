@@ -18,14 +18,14 @@ defmodule Retrobeam.Retros.RetroServerTest do
   end
 
   # A stand-in for a connected LiveView.
-  defp spawn_viewer(retro_id) do
+  defp spawn_viewer(retro_id, scope) do
     test = self()
 
     pid =
       spawn(fn ->
         # Like a LiveView under test, share the test's database sandbox.
         Process.put(:"$callers", [test])
-        {:ok, state} = RetroServer.join(retro_id)
+        {:ok, state} = RetroServer.join(retro_id, scope)
         send(test, {:joined, self(), state})
 
         receive do
@@ -58,7 +58,7 @@ defmodule Retrobeam.Retros.RetroServerTest do
   test "returns not found for an unknown retro" do
     assert {:error, :not_found} = RetroServer.ensure_started(-1)
     assert {:error, :not_found} = RetroServer.get_state(-1)
-    assert {:error, :not_found} = RetroServer.join(-1)
+    assert {:error, :not_found} = RetroServer.join(-1, user_scope_fixture())
     assert RetroServer.whereis(-1) == nil
   end
 
@@ -91,8 +91,8 @@ defmodule Retrobeam.Retros.RetroServerTest do
     refute RetroServer.whereis(retro.id) == pid
   end
 
-  test "join/2 monitors the viewer and returns the state", %{retro: retro} do
-    {viewer, state} = spawn_viewer(retro.id)
+  test "join/3 monitors the viewer and returns the state", %{scope: scope, retro: retro} do
+    {viewer, state} = spawn_viewer(retro.id, scope)
 
     assert %RetroServer.State{retro: %RetroSession{id: id}} = state
     assert id == retro.id
@@ -102,15 +102,15 @@ defmodule Retrobeam.Retros.RetroServerTest do
     assert map_size(:sys.get_state(server).viewers) == 1
 
     # Joining again from the same process does not add a second viewer.
-    {:ok, _} = RetroServer.join(retro.id, viewer)
+    {:ok, _} = RetroServer.join(retro.id, scope, viewer)
     assert map_size(:sys.get_state(server).viewers) == 1
 
     send(viewer, :leave)
     assert await_exit(ref, server) == :normal
   end
 
-  test "stays up while a viewer is connected", %{retro: retro} do
-    {viewer, _state} = spawn_viewer(retro.id)
+  test "stays up while a viewer is connected", %{scope: scope, retro: retro} do
+    {viewer, _state} = spawn_viewer(retro.id, scope)
     server = RetroServer.whereis(retro.id)
     ref = Process.monitor(server)
 
@@ -130,6 +130,22 @@ defmodule Retrobeam.Retros.RetroServerTest do
     assert {:ok, state} = RetroServer.get_state(retro.id)
     assert state.retro.id == retro.id
     refute RetroServer.whereis(retro.id) == first
+  end
+
+  test "join/3 loads participants who joined after the server started", %{retro: retro} do
+    {:ok, _pid} = RetroServer.ensure_started(retro.id)
+    late = user_scope_fixture()
+    {:ok, _} = Retrobeam.Retros.join_retro(late, retro.join_code)
+
+    {:ok, state} = RetroServer.get_state(retro.id)
+    refute Enum.any?(state.participants, &(&1.user_id == late.user.id))
+
+    {:ok, state} = RetroServer.join(retro.id, late)
+    assert Enum.any?(state.participants, &(&1.user_id == late.user.id))
+
+    # Joining again does not add the participant twice.
+    {:ok, state} = RetroServer.join(retro.id, late)
+    assert Enum.count(state.participants, &(&1.user_id == late.user.id)) == 1
   end
 
   test "stale idle timers are ignored", %{retro: retro} do

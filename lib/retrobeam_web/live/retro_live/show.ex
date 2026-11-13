@@ -2,7 +2,8 @@ defmodule RetrobeamWeb.RetroLive.Show do
   use RetrobeamWeb, :live_view
 
   alias Retrobeam.Retros
-  alias Retrobeam.Retros.{Events, RetroServer, RetroSession}
+  alias Retrobeam.Retros.{Card, Events, RetroServer, RetroSession}
+  alias RetrobeamWeb.RetroLive.ColumnComponent
 
   @impl true
   def render(assigns) do
@@ -196,21 +197,18 @@ defmodule RetrobeamWeb.RetroLive.Show do
         }
       </script>
 
-      <div id="retro-columns" class={["grid gap-4", grid_class(length(@retro.columns))]}>
-        <section
+      <div id="retro-columns" class={["grid items-start gap-4", grid_class(length(@retro.columns))]}>
+        <.live_component
           :for={column <- @retro.columns}
+          module={ColumnComponent}
           id={"column-#{column.id}"}
-          aria-labelledby={"column-#{column.id}-name"}
-          class="rounded-box border border-base-300 bg-base-200 p-4"
-        >
-          <h2 id={"column-#{column.id}-name"} class="font-bold tracking-tight">
-            {column.name}
-          </h2>
-          <p :if={column.description} class="text-sm leading-6 text-base-content/70">
-            {column.description}
-          </p>
-          <p class="mt-4 text-sm text-base-content/60">No cards yet.</p>
-        </section>
+          column={column}
+          retro={@retro}
+          scope={@current_scope}
+          current_user_id={@current_scope.user.id}
+          participant?={true}
+          board_version={@board_version}
+        />
       </div>
     </Layouts.app>
     """
@@ -227,6 +225,7 @@ defmodule RetrobeamWeb.RetroLive.Show do
          |> assign(:page_title, retro.title)
          |> assign(:join_url, url(~p"/retros/join/#{retro.join_code}"))
          |> assign(:facilitator?, Retros.facilitator?(socket.assigns.current_scope, retro))
+         |> assign(:board_version, 0)
          |> assign_retro(retro)}
 
       {:error, :not_participant, retro} ->
@@ -291,9 +290,27 @@ defmodule RetrobeamWeb.RetroLive.Show do
   end
 
   @impl true
-  def handle_info({event, %RetroSession{} = retro}, socket)
-      when event in [:phase_changed, :retro_updated] do
+  # A new phase can reveal hidden cards or lock them, so every column
+  # reloads its cards.
+  def handle_info({:phase_changed, %RetroSession{} = retro}, socket) do
+    {:noreply, socket |> assign_retro(retro) |> update(:board_version, &(&1 + 1))}
+  end
+
+  def handle_info({:retro_updated, %RetroSession{} = retro}, socket) do
     {:noreply, assign_retro(socket, retro)}
+  end
+
+  def handle_info({event, %Card{} = card}, socket)
+      when event in [:card_created, :card_updated, :card_deleted] do
+    action =
+      case event do
+        :card_created -> :created
+        :card_updated -> :updated
+        :card_deleted -> :deleted
+      end
+
+    send_update(ColumnComponent, id: "column-#{card.retro_column_id}", card_event: {action, card})
+    {:noreply, socket}
   end
 
   # Stories that add retro events add a clause above this one for each event.
@@ -361,7 +378,10 @@ defmodule RetrobeamWeb.RetroLive.Show do
   defp connect_to_session(socket, retro) do
     if connected?(socket) do
       :ok = Events.subscribe(retro.id)
-      {:ok, %RetroServer.State{retro: retro}} = RetroServer.join(retro.id)
+
+      {:ok, %RetroServer.State{retro: retro}} =
+        RetroServer.join(retro.id, socket.assigns.current_scope)
+
       retro
     else
       retro

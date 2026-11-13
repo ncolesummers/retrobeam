@@ -306,6 +306,35 @@ defmodule RetrobeamWeb.CoreComponents do
   end
 
   @doc """
+  Renders a user's avatar: their initial on a circle in their avatar color.
+
+  The avatar is decorative (`aria-hidden`); always show the display name
+  next to it as text.
+  """
+  attr :user, :map, required: true, doc: "a user with display_name and avatar_color"
+  attr :class, :any, default: "size-8 text-sm"
+
+  def avatar(assigns) do
+    ~H"""
+    <span
+      aria-hidden="true"
+      class={[
+        "inline-flex flex-none items-center justify-center rounded-full font-bold text-[#111318]",
+        @class
+      ]}
+      style={"background-color: #{@user.avatar_color || "#6366F1"}"}
+    >
+      {initial(@user.display_name)}
+    </span>
+    """
+  end
+
+  defp initial(name) when is_binary(name) and name != "",
+    do: name |> String.trim() |> String.first() |> String.upcase()
+
+  defp initial(_name), do: "?"
+
+  @doc """
   Renders a header with title.
   """
   slot :inner_block, required: true

@@ -10,7 +10,7 @@ defmodule Retrobeam.Retros do
 
   alias Retrobeam.Accounts.Scope
   alias Retrobeam.Repo
-  alias Retrobeam.Retros.{JoinCode, RetroParticipation, RetroServer, RetroSession}
+  alias Retrobeam.Retros.{Card, JoinCode, RetroParticipation, RetroServer, RetroSession}
 
   @join_code_attempts 5
 
@@ -143,6 +143,26 @@ defmodule Retrobeam.Retros do
   Finishes the retro, making it read-only. See `RetroServer.finish/2`.
   """
   def finish_retro(%Scope{} = scope, retro_id), do: RetroServer.finish(retro_id, scope)
+
+  @doc """
+  Returns a changeset for a card form.
+  """
+  def change_card(%Card{} = card \\ %Card{}, attrs \\ %{}), do: Card.changeset(card, attrs)
+
+  @doc """
+  Adds a card during Collect. `attrs` holds `"column_id"` and `"body"`.
+  See `RetroServer.add_card/3`.
+  """
+  def add_card(%Scope{} = scope, retro_id, attrs),
+    do: RetroServer.add_card(retro_id, scope, attrs)
+
+  @doc "Edits the scope's own card. See `RetroServer.update_card/4`."
+  def update_card(%Scope{} = scope, retro_id, card_id, attrs),
+    do: RetroServer.update_card(retro_id, scope, card_id, attrs)
+
+  @doc "Deletes the scope's own card. See `RetroServer.delete_card/3`."
+  def delete_card(%Scope{} = scope, retro_id, card_id),
+    do: RetroServer.delete_card(retro_id, scope, card_id)
 
   @doc """
   Returns true when the scope's user is the retro's facilitator.
