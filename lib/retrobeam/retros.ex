@@ -103,14 +103,15 @@ defmodule Retrobeam.Retros do
   Ended retros can be joined; they open read-only.
 
   Failed attempts are limited per user and, when `:ip` is given, per IP
-  address (see `Retrobeam.Retros.JoinLimiter`).
+  address (see `Retrobeam.Retros.JoinLimiter`). `:limits` overrides the
+  configured limits, as `JoinLimiter.check/2` describes.
 
   Returns `{:ok, retro}`, `{:error, :not_found}` or `{:error, :rate_limited}`.
   """
   def join_retro(%Scope{user: user}, code, opts \\ []) do
     limiter_keys = [{:user, user.id} | List.wrap(opts[:ip] && {:ip, opts[:ip]})]
 
-    with :ok <- JoinLimiter.check(limiter_keys) do
+    with :ok <- JoinLimiter.check(limiter_keys, Keyword.get(opts, :limits, [])) do
       case do_join(user, code) do
         {:ok, session} ->
           {:ok, session}

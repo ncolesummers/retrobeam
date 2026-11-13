@@ -287,21 +287,21 @@ defmodule Retrobeam.RetrosTest do
 
     test "limits failed attempts per IP address across users", %{retro: retro} do
       ip = "203.0.113.#{System.unique_integer([:positive])}"
-      Application.put_env(:retrobeam, Retrobeam.Retros.JoinLimiter, ip_limit: 3)
-
-      on_exit(fn ->
-        Application.put_env(:retrobeam, Retrobeam.Retros.JoinLimiter, ip_limit: 1_000_000)
-      end)
+      # A per-call limit, so other tests sharing the config aren't affected.
+      opts = [ip: ip, limits: [ip_limit: 3]]
 
       for _ <- 1..3 do
-        assert {:error, :not_found} = Retros.join_retro(user_scope_fixture(), "ZZZZZZ", ip: ip)
+        assert {:error, :not_found} = Retros.join_retro(user_scope_fixture(), "ZZZZZZ", opts)
       end
 
       assert {:error, :rate_limited} =
-               Retros.join_retro(user_scope_fixture(), retro.join_code, ip: ip)
+               Retros.join_retro(user_scope_fixture(), retro.join_code, opts)
 
       assert {:ok, _} =
-               Retros.join_retro(user_scope_fixture(), retro.join_code, ip: "198.51.100.1")
+               Retros.join_retro(user_scope_fixture(), retro.join_code,
+                 ip: "198.51.100.1",
+                 limits: [ip_limit: 3]
+               )
     end
 
     test "successful joins don't count against the limit", %{retro: retro, joiner: joiner} do

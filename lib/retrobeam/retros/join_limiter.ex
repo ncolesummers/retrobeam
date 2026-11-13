@@ -17,6 +17,9 @@ defmodule Retrobeam.Retros.JoinLimiter do
         window_ms: :timer.minutes(10),
         user_limit: 10,
         ip_limit: 50
+
+  `check/2` also takes `:user_limit` and `:ip_limit` overrides, so tests can
+  use a small limit without changing config that other tests share.
   """
   use GenServer
 
@@ -30,11 +33,11 @@ defmodule Retrobeam.Retros.JoinLimiter do
   @doc """
   Returns `:ok` when every key is under its limit, or `{:error, :rate_limited}`.
   """
-  @spec check([key()]) :: :ok | {:error, :rate_limited}
-  def check(keys) do
+  @spec check([key()], keyword()) :: :ok | {:error, :rate_limited}
+  def check(keys, limits \\ []) do
     window = current_window()
 
-    if Enum.any?(keys, &(count(&1, window) >= limit(&1))),
+    if Enum.any?(keys, &(count(&1, window) >= limit(&1, limits))),
       do: {:error, :rate_limited},
       else: :ok
   end
@@ -75,8 +78,11 @@ defmodule Retrobeam.Retros.JoinLimiter do
     end
   end
 
-  defp limit({:user, _}), do: config(:user_limit)
-  defp limit({:ip, _}), do: config(:ip_limit)
+  defp limit({:user, _}, limits),
+    do: Keyword.get_lazy(limits, :user_limit, fn -> config(:user_limit) end)
+
+  defp limit({:ip, _}, limits),
+    do: Keyword.get_lazy(limits, :ip_limit, fn -> config(:ip_limit) end)
 
   defp current_window, do: div(System.monotonic_time(:millisecond), config(:window_ms))
 
