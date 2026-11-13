@@ -69,6 +69,9 @@ defmodule RetrobeamWeb.Router do
 
     live_session :authenticated, on_mount: [{RetrobeamWeb.UserAuth, :ensure_authenticated}] do
       live "/retros", RetroLive.Index, :index
+      # Literal paths must come before /retros/:id.
+      live "/retros/new", RetroLive.New, :new
+      live "/retros/:id", RetroLive.Show, :show
     end
   end
 
