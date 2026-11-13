@@ -2,7 +2,7 @@ defmodule RetrobeamWeb.RetroLive.Show do
   use RetrobeamWeb, :live_view
 
   alias Retrobeam.Retros
-  alias Retrobeam.Retros.RetroSession
+  alias Retrobeam.Retros.{Events, RetroServer, RetroSession}
 
   @impl true
   def render(assigns) do
@@ -96,13 +96,19 @@ defmodule RetrobeamWeb.RetroLive.Show do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    case Retros.fetch_retro(socket.assigns.current_scope, id) do
-      {:ok, retro} ->
+    with {:ok, retro} <- Retros.fetch_retro(socket.assigns.current_scope, id),
+         {:ok, retro} <- connect_to_session(socket, retro) do
+      {:ok,
+       socket
+       |> assign(:page_title, retro.title)
+       |> assign(:join_url, url(~p"/retros/join/#{retro.join_code}"))
+       |> assign(:retro, retro)}
+    else
+      {:error, :unavailable} ->
         {:ok,
          socket
-         |> assign(:page_title, retro.title)
-         |> assign(:join_url, url(~p"/retros/join/#{retro.join_code}"))
-         |> assign(:retro, retro)}
+         |> put_flash(:error, "That retro isn't available right now. Try again in a moment.")
+         |> push_navigate(to: ~p"/retros")}
 
       {:error, :not_found} ->
         {:ok,
@@ -112,6 +118,43 @@ defmodule RetrobeamWeb.RetroLive.Show do
            "We couldn't find that retro. If you have its join code, use it to join."
          )
          |> push_navigate(to: ~p"/retros/join")}
+    end
+  end
+
+  # The retro's server restarted (after a crash): join it again so it
+  # watches this view and doesn't stop as idle while people are here.
+  @impl true
+  def handle_info(
+        {:retro_server_started, retro_id},
+        %{assigns: %{retro: %{id: retro_id}}} = socket
+      ) do
+    # Best effort: if the server is gone again, the next start event or the
+    # next change brings the view back.
+    try do
+      _ = RetroServer.join(retro_id)
+    catch
+      :exit, _reason -> :ok
+    end
+
+    {:noreply, socket}
+  end
+
+  # Stories that add retro events add a clause above this one for each event.
+  def handle_info(_event, socket), do: {:noreply, socket}
+
+  # Once the socket is connected, register with the retro's session process
+  # and listen for its events. The server's cached state is the source of
+  # truth from then on.
+  defp connect_to_session(socket, retro) do
+    if connected?(socket) do
+      :ok = Events.subscribe(retro.id)
+
+      case RetroServer.join(retro.id) do
+        {:ok, %RetroServer.State{retro: retro}} -> {:ok, retro}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, retro}
     end
   end
 

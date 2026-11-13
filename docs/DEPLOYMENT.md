@@ -32,6 +32,15 @@ Internet (HTTPS :443)
 - **Secrets** (DATABASE_URL, SECRET_KEY_BASE, etc.) are encrypted and injected as env vars at runtime
 - **Migrations** run automatically before each deploy via `release_command` in `fly.toml`
 
+### Keep it to one machine
+
+Run exactly one app machine (`fly scale count 1`). Each live retro is served by
+one in-memory process (`Retrobeam.Retros.RetroServer`), found through a
+node-local `Registry`. With two machines, people in the same retro could be
+served by two different processes, each with its own idea of the retro's state.
+The join-code guess limits (`Retrobeam.Retros.JoinLimiter`) are per machine
+too. Running more than one machine needs a cluster-wide registry first.
+
 ## First-Time Setup
 
 If the app hasn't been created on Fly.io yet, follow these steps:

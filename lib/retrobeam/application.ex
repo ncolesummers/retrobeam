@@ -14,6 +14,16 @@ defmodule Retrobeam.Application do
       {Phoenix.PubSub, name: Retrobeam.PubSub},
       {Oban, Application.fetch_env!(:retrobeam, Oban)},
       Retrobeam.Retros.JoinLimiter,
+      # One RetroServer per active retro, registered by retro id
+      {Registry, keys: :unique, name: Retrobeam.Retros.Registry},
+      # Servers that crash are restarted. The limit is generous because each
+      # server is an independent retro; the default (3 in 5 seconds) would
+      # let a burst of unrelated crashes stop every retro at once.
+      {DynamicSupervisor,
+       name: Retrobeam.Retros.SessionSupervisor,
+       strategy: :one_for_one,
+       max_restarts: 50,
+       max_seconds: 5},
       # Start to serve requests, typically the last entry
       RetrobeamWeb.Endpoint
     ]

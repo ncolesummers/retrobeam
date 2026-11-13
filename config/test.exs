@@ -23,6 +23,9 @@ config :retrobeam, RetrobeamWeb.Endpoint,
   secret_key_base: "xamjkPBW+0/s8qW9KzN5dt0KkCcR4qOTbfO3XEMkonTHKBu9lwKaFomnQc6fOzIq",
   server: false
 
+# Stop idle retro session processes quickly in tests
+config :retrobeam, Retrobeam.Retros.RetroServer, idle_timeout: 100
+
 # In test we don't send emails
 config :retrobeam, Retrobeam.Mailer, adapter: Swoosh.Adapters.Test
 
