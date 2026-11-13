@@ -7,8 +7,12 @@ defmodule Retrobeam.Retros.Template do
   columns of their own.
 
   Templates are not stored in the database. A retro stores its template key
-  (see `keys/0`) and its own copy of the columns, so changing a template here
-  never changes an existing retro.
+  (see `keys/0`) and its own copy of the columns, so changing a template's
+  columns here never changes an existing retro.
+
+  Template keys are append-only. `keys/0` supplies the `Ecto.Enum` values of a
+  retro's template field, and Ecto can't load a stored value it no longer
+  lists, so renaming or removing a key breaks every retro that uses it.
   """
 
   @type key :: :start_stop_continue | :mad_sad_glad | :four_ls | :sailboat | :custom
@@ -30,6 +34,10 @@ defmodule Retrobeam.Retros.Template do
   @min_custom_columns 2
   @max_custom_columns 6
   @max_column_name_length 40
+  # The column name is stored as varchar(255), which Postgres measures in
+  # codepoints. A name of 40 graphemes can be far more codepoints (emoji
+  # sequences), so cap codepoints as well.
+  @max_column_name_codepoints 255
 
   @named [
     {:start_stop_continue, "Start, Stop, Continue",
@@ -150,9 +158,10 @@ defmodule Retrobeam.Retros.Template do
   Builds columns for a template.
 
   For `:custom`, `names` must be a list of #{@min_custom_columns} to
-  #{@max_custom_columns} column names. Names are trimmed, must not be blank,
-  must be at most #{@max_column_name_length} characters and must be unique
-  ignoring case. For a named template, `names` is ignored.
+  #{@max_custom_columns} column names. Names are normalized (see
+  `normalize_name/1`), must not be blank, must be at most
+  #{@max_column_name_length} characters and must be unique ignoring case. For a
+  named template, `names` is ignored.
 
   ## Examples
 
@@ -167,7 +176,7 @@ defmodule Retrobeam.Retros.Template do
           {:ok, [column()]} | {:error, custom_error() | :unknown_template}
   def columns(key, names) when key in [:custom, "custom"] do
     with :ok <- validate_list(names),
-         names = Enum.map(names, &String.trim/1),
+         names = Enum.map(names, &normalize_name/1),
          :ok <- validate_count(names),
          :ok <- validate_each(names),
          :ok <- validate_unique(names) do
@@ -209,6 +218,39 @@ defmodule Retrobeam.Retros.Template do
   def error_message(:duplicate_column_names), do: "Column names must be different."
   def error_message(:unknown_template), do: "Choose a template."
 
+  @doc """
+  Normalizes a column name: converts it to Unicode NFC, removes invisible
+  format characters such as zero-width spaces, and trims whitespace.
+
+  Zero-width joiners and non-joiners are kept, because emoji sequences and
+  some scripts need them to render correctly. The blank and duplicate checks
+  ignore them instead.
+
+  ## Examples
+
+      iex> Retrobeam.Retros.Template.normalize_name(" Wins\u200B ")
+      "Wins"
+
+  """
+  @spec normalize_name(String.t()) :: String.t()
+  def normalize_name(name) when is_binary(name) do
+    name
+    |> to_nfc()
+    |> String.replace(~r/(?![\x{200C}\x{200D}])\p{Cf}/u, "")
+    |> String.trim()
+  end
+
+  defp to_nfc(name) do
+    case :unicode.characters_to_nfc_binary(name) do
+      normalized when is_binary(normalized) -> normalized
+      _invalid -> name
+    end
+  end
+
+  # The form of a name used to compare names: no format characters at all,
+  # lowercased.
+  defp comparable(name), do: name |> String.replace(~r/\p{Cf}/u, "") |> String.downcase()
+
   @doc "The fewest columns a custom template may have."
   def min_custom_columns, do: @min_custom_columns
 
@@ -234,10 +276,10 @@ defmodule Retrobeam.Retros.Template do
 
   defp validate_each(names) do
     cond do
-      Enum.any?(names, &(&1 == "")) ->
+      Enum.any?(names, &(comparable(&1) == "")) ->
         {:error, :blank_column_name}
 
-      Enum.any?(names, &(String.length(&1) > @max_column_name_length)) ->
+      Enum.any?(names, &too_long?/1) ->
         {:error, :column_name_too_long}
 
       true ->
@@ -245,8 +287,13 @@ defmodule Retrobeam.Retros.Template do
     end
   end
 
+  defp too_long?(name) do
+    String.length(name) > @max_column_name_length or
+      length(String.to_charlist(name)) > @max_column_name_codepoints
+  end
+
   defp validate_unique(names) do
-    downcased = Enum.map(names, &String.downcase/1)
+    downcased = Enum.map(names, &comparable/1)
 
     if length(Enum.uniq(downcased)) == length(downcased),
       do: :ok,
