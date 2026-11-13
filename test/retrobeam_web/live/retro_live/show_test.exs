@@ -21,6 +21,24 @@ defmodule RetrobeamWeb.RetroLive.ShowTest do
     end
   end
 
+  test "joins the retro's session process when connected", %{conn: conn, scope: scope} do
+    retro = retro_fixture(scope)
+
+    {:ok, view, _html} = live(conn, ~p"/retros/#{retro}")
+
+    server = Retrobeam.Retros.RetroServer.whereis(retro.id)
+    assert is_pid(server)
+    assert view.pid in Map.values(:sys.get_state(server).viewers)
+
+    assert Phoenix.PubSub.broadcast(
+             Retrobeam.PubSub,
+             Retrobeam.Retros.Events.topic(retro.id),
+             :unknown_event
+           ) == :ok
+
+    assert render(view) =~ retro.title
+  end
+
   test "lets joined participants open the retro", %{conn: conn, user: user} do
     retro = retro_fixture(user_scope_fixture())
     participation_fixture(retro, user)

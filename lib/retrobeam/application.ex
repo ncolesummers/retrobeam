@@ -13,6 +13,9 @@ defmodule Retrobeam.Application do
       {DNSCluster, query: Application.get_env(:retrobeam, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Retrobeam.PubSub},
       {Oban, Application.fetch_env!(:retrobeam, Oban)},
+      # One RetroServer per active retro, registered by retro id
+      {Registry, keys: :unique, name: Retrobeam.Retros.Registry},
+      {DynamicSupervisor, name: Retrobeam.Retros.SessionSupervisor, strategy: :one_for_one},
       # Start to serve requests, typically the last entry
       RetrobeamWeb.Endpoint
     ]
