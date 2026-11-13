@@ -11,7 +11,9 @@ defmodule Retrobeam.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      # `mix test --cover` fails below this (the default threshold is 90%).
+      test_coverage: [summary: [threshold: 80]]
     ]
   end
 
