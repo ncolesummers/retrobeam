@@ -25,10 +25,23 @@ defmodule Retrobeam.Retros.JoinCode do
   """
   def generate do
     alphabet = List.to_tuple(@alphabet)
-    size = tuple_size(alphabet)
+    generate(alphabet, tuple_size(alphabet), "")
+  end
 
-    for <<byte <- :crypto.strong_rand_bytes(@length)>>, into: "" do
-      <<elem(alphabet, rem(byte, size))>>
+  # Only bytes below the largest multiple of the alphabet size are used, so
+  # every character is equally likely (rem/2 over all 256 values would
+  # favour the first few characters).
+  defp generate(_alphabet, _size, code) when byte_size(code) == @length, do: code
+
+  defp generate(alphabet, size, code) do
+    limit = 256 - rem(256, size)
+
+    case :crypto.strong_rand_bytes(1) do
+      <<byte>> when byte < limit ->
+        generate(alphabet, size, code <> <<elem(alphabet, rem(byte, size))>>)
+
+      _ ->
+        generate(alphabet, size, code)
     end
   end
 
