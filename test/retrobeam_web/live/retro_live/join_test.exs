@@ -67,6 +67,21 @@ defmodule RetrobeamWeb.RetroLive.JoinTest do
       refute html =~ "No retro has that code."
     end
 
+    test "says so when there have been too many failed attempts", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/retros/join")
+
+      for _ <- 1..10, do: view |> form("#join-form", join: %{code: "ZZZZZZ"}) |> render_submit()
+
+      html = view |> form("#join-form", join: %{code: "ZZZZZZ"}) |> render_submit()
+      assert html =~ "Too many attempts."
+    end
+
+    test "ignores a join event without a code", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/retros/join")
+      render_submit(view, "join", %{})
+      assert has_element?(view, "#join-form")
+    end
+
     test "joining again redirects without a second record", %{
       conn: conn,
       retro: retro,

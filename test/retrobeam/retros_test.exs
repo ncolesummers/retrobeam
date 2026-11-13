@@ -273,6 +273,53 @@ defmodule Retrobeam.RetrosTest do
       assert {:error, :not_found} = Retros.join_retro(joiner, "ABC")
       assert {:error, :not_found} = Retros.join_retro(joiner, nil)
     end
+
+    test "limits failed attempts per user", %{retro: retro, joiner: joiner} do
+      for _ <- 1..10, do: assert({:error, :not_found} = Retros.join_retro(joiner, "ZZZZZZ"))
+
+      assert {:error, :rate_limited} = Retros.join_retro(joiner, "ZZZZZZ")
+      # Even the right code is refused until the window ends.
+      assert {:error, :rate_limited} = Retros.join_retro(joiner, retro.join_code)
+
+      # Other users are unaffected.
+      assert {:ok, _} = Retros.join_retro(user_scope_fixture(), retro.join_code)
+    end
+
+    test "limits failed attempts per IP address across users", %{retro: retro} do
+      ip = "203.0.113.#{System.unique_integer([:positive])}"
+      Application.put_env(:retrobeam, Retrobeam.Retros.JoinLimiter, ip_limit: 3)
+
+      on_exit(fn ->
+        Application.put_env(:retrobeam, Retrobeam.Retros.JoinLimiter, ip_limit: 1_000_000)
+      end)
+
+      for _ <- 1..3 do
+        assert {:error, :not_found} = Retros.join_retro(user_scope_fixture(), "ZZZZZZ", ip: ip)
+      end
+
+      assert {:error, :rate_limited} =
+               Retros.join_retro(user_scope_fixture(), retro.join_code, ip: ip)
+
+      assert {:ok, _} =
+               Retros.join_retro(user_scope_fixture(), retro.join_code, ip: "198.51.100.1")
+    end
+
+    test "successful joins don't count against the limit", %{retro: retro, joiner: joiner} do
+      for _ <- 1..15, do: assert({:ok, _} = Retros.join_retro(joiner, retro.join_code))
+    end
+
+    test "a retro deleted before the insert is not found, not a crash", %{joiner: joiner} do
+      changeset =
+        %RetroParticipation{retro_session_id: -1}
+        |> RetroParticipation.changeset(%{
+          user_id: joiner.user.id,
+          role: :participant,
+          joined_at: DateTime.utc_now(:second)
+        })
+
+      assert {:error, changeset} = Repo.insert(changeset)
+      assert "does not exist" in errors_on(changeset).retro_session_id
+    end
   end
 
   test "facilitator?/2", %{scope: scope} do
