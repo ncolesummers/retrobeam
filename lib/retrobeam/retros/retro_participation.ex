@@ -21,5 +21,6 @@ defmodule Retrobeam.Retros.RetroParticipation do
     |> cast(attrs, [:role, :joined_at, :user_id])
     |> validate_required([:role, :joined_at, :user_id])
     |> unique_constraint([:user_id, :retro_session_id])
+    |> foreign_key_constraint(:retro_session_id)
   end
 end

@@ -10,7 +10,7 @@ defmodule Retrobeam.Retros do
 
   alias Retrobeam.Accounts.Scope
   alias Retrobeam.Repo
-  alias Retrobeam.Retros.{JoinCode, RetroSession}
+  alias Retrobeam.Retros.{JoinCode, JoinLimiter, RetroParticipation, RetroSession}
 
   @join_code_attempts 5
 
@@ -91,6 +91,55 @@ defmodule Retrobeam.Retros do
            ) do
       {:ok, Repo.preload(session, :columns)}
     else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Joins the retro with `code` as a participant.
+
+  The code is matched ignoring case and surrounding whitespace. Joining a
+  retro again, or the facilitator joining their own retro, changes nothing.
+  Ended retros can be joined; they open read-only.
+
+  Failed attempts are limited per user and, when `:ip` is given, per IP
+  address (see `Retrobeam.Retros.JoinLimiter`). `:limits` overrides the
+  configured limits, as `JoinLimiter.check/2` describes.
+
+  Returns `{:ok, retro}`, `{:error, :not_found}` or `{:error, :rate_limited}`.
+  """
+  def join_retro(%Scope{user: user}, code, opts \\ []) do
+    limiter_keys = [{:user, user.id} | List.wrap(opts[:ip] && {:ip, opts[:ip]})]
+
+    with :ok <- JoinLimiter.check(limiter_keys, Keyword.get(opts, :limits, [])) do
+      case do_join(user, code) do
+        {:ok, session} ->
+          {:ok, session}
+
+        {:error, :not_found} ->
+          JoinLimiter.record_failure(limiter_keys)
+          {:error, :not_found}
+      end
+    end
+  end
+
+  defp do_join(user, code) do
+    code = JoinCode.normalize(code)
+
+    with true <- JoinCode.valid?(code),
+         %RetroSession{} = session <- Repo.get_by(RetroSession, join_code: code),
+         {:ok, _participation} <-
+           %RetroParticipation{retro_session_id: session.id}
+           |> RetroParticipation.changeset(%{
+             user_id: user.id,
+             role: :participant,
+             joined_at: DateTime.utc_now(:second)
+           })
+           |> Repo.insert(on_conflict: :nothing, conflict_target: [:user_id, :retro_session_id]) do
+      {:ok, session}
+    else
+      # Covers a malformed code, no match, and the retro being deleted
+      # between the lookup and the insert.
       _ -> {:error, :not_found}
     end
   end

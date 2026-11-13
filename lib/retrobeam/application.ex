@@ -13,6 +13,7 @@ defmodule Retrobeam.Application do
       {DNSCluster, query: Application.get_env(:retrobeam, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Retrobeam.PubSub},
       {Oban, Application.fetch_env!(:retrobeam, Oban)},
+      Retrobeam.Retros.JoinLimiter,
       # Start to serve requests, typically the last entry
       RetrobeamWeb.Endpoint
     ]

@@ -230,6 +230,98 @@ defmodule Retrobeam.RetrosTest do
     end
   end
 
+  describe "join_retro/2" do
+    setup %{scope: scope} do
+      %{retro: retro_fixture(scope), joiner: user_scope_fixture()}
+    end
+
+    test "adds the user as a participant", %{retro: retro, joiner: joiner} do
+      assert {:ok, %RetroSession{id: id}} = Retros.join_retro(joiner, retro.join_code)
+      assert id == retro.id
+
+      participation = Repo.get_by!(RetroParticipation, user_id: joiner.user.id)
+      assert participation.role == :participant
+      assert {:ok, _} = Retros.fetch_retro(joiner, retro.id)
+    end
+
+    test "matches lower-case codes with surrounding spaces", %{retro: retro, joiner: joiner} do
+      assert {:ok, _} = Retros.join_retro(joiner, "  #{String.downcase(retro.join_code)}\n")
+    end
+
+    test "joining twice keeps one participation", %{retro: retro, joiner: joiner} do
+      assert {:ok, _} = Retros.join_retro(joiner, retro.join_code)
+      assert {:ok, _} = Retros.join_retro(joiner, retro.join_code)
+
+      assert Repo.aggregate(
+               from(p in RetroParticipation, where: p.user_id == ^joiner.user.id),
+               :count
+             ) == 1
+    end
+
+    test "the facilitator keeps their role", %{retro: retro, scope: scope} do
+      assert {:ok, _} = Retros.join_retro(scope, retro.join_code)
+      assert Repo.get_by!(RetroParticipation, user_id: scope.user.id).role == :facilitator
+    end
+
+    test "ended retros can be joined", %{retro: retro, joiner: joiner} do
+      retro |> Ecto.Changeset.change(ended_at: DateTime.utc_now(:second)) |> Repo.update!()
+      assert {:ok, _} = Retros.join_retro(joiner, retro.join_code)
+    end
+
+    test "rejects unknown and malformed codes", %{joiner: joiner} do
+      assert {:error, :not_found} = Retros.join_retro(joiner, "ZZZZZZ")
+      assert {:error, :not_found} = Retros.join_retro(joiner, "ABC")
+      assert {:error, :not_found} = Retros.join_retro(joiner, nil)
+    end
+
+    test "limits failed attempts per user", %{retro: retro, joiner: joiner} do
+      for _ <- 1..10, do: assert({:error, :not_found} = Retros.join_retro(joiner, "ZZZZZZ"))
+
+      assert {:error, :rate_limited} = Retros.join_retro(joiner, "ZZZZZZ")
+      # Even the right code is refused until the window ends.
+      assert {:error, :rate_limited} = Retros.join_retro(joiner, retro.join_code)
+
+      # Other users are unaffected.
+      assert {:ok, _} = Retros.join_retro(user_scope_fixture(), retro.join_code)
+    end
+
+    test "limits failed attempts per IP address across users", %{retro: retro} do
+      ip = "203.0.113.#{System.unique_integer([:positive])}"
+      # A per-call limit, so other tests sharing the config aren't affected.
+      opts = [ip: ip, limits: [ip_limit: 3]]
+
+      for _ <- 1..3 do
+        assert {:error, :not_found} = Retros.join_retro(user_scope_fixture(), "ZZZZZZ", opts)
+      end
+
+      assert {:error, :rate_limited} =
+               Retros.join_retro(user_scope_fixture(), retro.join_code, opts)
+
+      assert {:ok, _} =
+               Retros.join_retro(user_scope_fixture(), retro.join_code,
+                 ip: "198.51.100.1",
+                 limits: [ip_limit: 3]
+               )
+    end
+
+    test "successful joins don't count against the limit", %{retro: retro, joiner: joiner} do
+      for _ <- 1..15, do: assert({:ok, _} = Retros.join_retro(joiner, retro.join_code))
+    end
+
+    test "a retro deleted before the insert is not found, not a crash", %{joiner: joiner} do
+      changeset =
+        %RetroParticipation{retro_session_id: -1}
+        |> RetroParticipation.changeset(%{
+          user_id: joiner.user.id,
+          role: :participant,
+          joined_at: DateTime.utc_now(:second)
+        })
+
+      assert {:error, changeset} = Repo.insert(changeset)
+      assert "does not exist" in errors_on(changeset).retro_session_id
+    end
+  end
+
   test "facilitator?/2", %{scope: scope} do
     retro = retro_fixture(scope)
     assert Retros.facilitator?(scope, retro)

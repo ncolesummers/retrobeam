@@ -71,6 +71,8 @@ defmodule RetrobeamWeb.Router do
       live "/retros", RetroLive.Index, :index
       # Literal paths must come before /retros/:id.
       live "/retros/new", RetroLive.New, :new
+      live "/retros/join", RetroLive.Join, :new
+      live "/retros/join/:code", RetroLive.Join, :new
       live "/retros/:id", RetroLive.Show, :show
     end
   end

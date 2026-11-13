@@ -31,10 +31,10 @@ defmodule RetrobeamWeb.RetroLive.ShowTest do
   test "treats retros the user hasn't joined as not found", %{conn: conn} do
     retro = retro_fixture(user_scope_fixture())
 
-    assert {:error, {:live_redirect, %{to: "/retros", flash: joined_flash}}} =
+    assert {:error, {:live_redirect, %{to: "/retros/join", flash: joined_flash}}} =
              live(conn, ~p"/retros/#{retro}")
 
-    assert {:error, {:live_redirect, %{to: "/retros", flash: unknown_flash}}} =
+    assert {:error, {:live_redirect, %{to: "/retros/join", flash: unknown_flash}}} =
              live(conn, ~p"/retros/0")
 
     # The same answer either way, and never the retro's join code.
@@ -43,8 +43,31 @@ defmodule RetrobeamWeb.RetroLive.ShowTest do
     refute joined_flash["error"] =~ retro.join_code
   end
 
+  test "shows a copyable join link", %{conn: conn, scope: scope} do
+    retro = retro_fixture(scope)
+
+    {:ok, view, _html} = live(conn, ~p"/retros/#{retro}")
+
+    join_url = url(~p"/retros/join/#{retro.join_code}")
+    assert has_element?(view, ~s|#join-link[value="#{join_url}"]|)
+    assert has_element?(view, ~s|#copy-join-link[data-text="#{join_url}"]|)
+  end
+
+  test "shows ended retros as read-only without a join link", %{conn: conn, scope: scope} do
+    retro = retro_fixture(scope)
+
+    retro
+    |> Ecto.Changeset.change(ended_at: DateTime.utc_now(:second))
+    |> Retrobeam.Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/retros/#{retro}")
+
+    assert has_element?(view, "#retro-ended", "finished")
+    refute has_element?(view, "#join-link")
+  end
+
   test "an id outside the bigint range is not found, not a crash", %{conn: conn} do
-    assert {:error, {:live_redirect, %{to: "/retros"}}} =
+    assert {:error, {:live_redirect, %{to: "/retros/join"}}} =
              live(conn, "/retros/99999999999999999999")
   end
 end
