@@ -56,19 +56,13 @@ defmodule RetrobeamWeb.RetroLive.Show do
          |> assign(:page_title, retro.title)
          |> assign(:retro, retro)}
 
-      {:error, :not_participant, _retro} ->
+      {:error, :not_found} ->
         {:ok,
          socket
          |> put_flash(
            :error,
-           "You haven't joined that retro. Ask the facilitator for its join code."
+           "We couldn't find that retro. If you have its join code, use it to join."
          )
-         |> push_navigate(to: ~p"/retros")}
-
-      {:error, :not_found} ->
-        {:ok,
-         socket
-         |> put_flash(:error, "That retro doesn't exist.")
          |> push_navigate(to: ~p"/retros")}
     end
   end

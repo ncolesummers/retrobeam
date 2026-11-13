@@ -10,7 +10,7 @@ defmodule Retrobeam.Retros do
 
   alias Retrobeam.Accounts.Scope
   alias Retrobeam.Repo
-  alias Retrobeam.Retros.{JoinCode, RetroParticipation, RetroSession}
+  alias Retrobeam.Retros.{JoinCode, RetroSession}
 
   @join_code_attempts 5
 
@@ -76,17 +76,20 @@ defmodule Retrobeam.Retros do
   @doc """
   Fetches a retro the scope's user takes part in, with its columns.
 
-  Returns `{:error, :not_found}` when no retro has that id and
-  `{:error, :not_participant, retro}` when the user has not joined it.
+  Returns `{:error, :not_found}` both when no retro has that id and when the
+  user has not joined it. Telling the two apart, or returning the retro,
+  would let anyone walk the sequential ids to learn which retros exist and
+  read their join codes.
   """
   def fetch_retro(%Scope{user: user}, id) do
     with {:ok, id} <- cast_id(id),
-         %RetroSession{} = session <- Repo.get(RetroSession, id) do
-      if participant?(user.id, session.id) do
-        {:ok, Repo.preload(session, :columns)}
-      else
-        {:error, :not_participant, session}
-      end
+         %RetroSession{} = session <-
+           Repo.one(
+             from s in RetroSession,
+               join: p in assoc(s, :participations),
+               where: s.id == ^id and p.user_id == ^user.id
+           ) do
+      {:ok, Repo.preload(session, :columns)}
     else
       _ -> {:error, :not_found}
     end
@@ -98,18 +101,15 @@ defmodule Retrobeam.Retros do
   def facilitator?(%Scope{user: user}, %RetroSession{facilitator_id: facilitator_id}),
     do: user.id == facilitator_id
 
-  defp participant?(user_id, session_id) do
-    Repo.exists?(
-      from p in RetroParticipation,
-        where: p.user_id == ^user_id and p.retro_session_id == ^session_id
-    )
-  end
+  # Ids are Postgres bigints; anything outside that range can't exist, and
+  # passing it to a query would raise instead of returning not found.
+  @max_id 9_223_372_036_854_775_807
 
-  defp cast_id(id) when is_integer(id), do: {:ok, id}
+  defp cast_id(id) when is_integer(id) and id >= 1 and id <= @max_id, do: {:ok, id}
 
   defp cast_id(id) when is_binary(id) do
     case Integer.parse(id) do
-      {int, ""} -> {:ok, int}
+      {int, ""} -> cast_id(int)
       _ -> :error
     end
   end

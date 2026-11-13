@@ -75,6 +75,32 @@ defmodule Retrobeam.RetrosTest do
       assert participation.joined_at
     end
 
+    test "a failed child insert rolls back the whole retro", %{scope: scope} do
+      changeset =
+        RetroSession.create_changeset(
+          %RetroSession{},
+          valid_retro_attributes(),
+          scope.user.id,
+          JoinCode.generate()
+        )
+
+      # Two facilitator rows for the same user: the retro and its columns are
+      # written first, then the second participation hits the unique index.
+      participation = %RetroParticipation{
+        user_id: scope.user.id,
+        role: :facilitator,
+        joined_at: DateTime.utc_now(:second)
+      }
+
+      changeset =
+        Ecto.Changeset.put_assoc(changeset, :participations, [participation, participation])
+
+      assert_raise Ecto.ConstraintError, fn -> Repo.insert(changeset) end
+      assert Repo.aggregate(RetroSession, :count) == 0
+      assert Repo.aggregate(RetroColumn, :count) == 0
+      assert Repo.aggregate(RetroParticipation, :count) == 0
+    end
+
     test "rejects invalid custom columns and writes nothing", %{scope: scope} do
       assert {:error, changeset} =
                Retros.create_retro(scope, %{
@@ -190,10 +216,7 @@ defmodule Retrobeam.RetrosTest do
       retro = retro_fixture(scope)
       outsider = user_scope_fixture()
 
-      assert {:error, :not_participant, %RetroSession{id: id}} =
-               Retros.fetch_retro(outsider, retro.id)
-
-      assert id == retro.id
+      assert {:error, :not_found} = Retros.fetch_retro(outsider, retro.id)
     end
 
     test "returns not found for unknown or malformed ids", %{scope: scope} do
@@ -201,6 +224,9 @@ defmodule Retrobeam.RetrosTest do
       assert {:error, :not_found} = Retros.fetch_retro(scope, "abc")
       assert {:error, :not_found} = Retros.fetch_retro(scope, "1abc")
       assert {:error, :not_found} = Retros.fetch_retro(scope, nil)
+      assert {:error, :not_found} = Retros.fetch_retro(scope, 0)
+      assert {:error, :not_found} = Retros.fetch_retro(scope, "99999999999999999999")
+      assert {:error, :not_found} = Retros.fetch_retro(scope, 9_223_372_036_854_775_808)
     end
   end
 

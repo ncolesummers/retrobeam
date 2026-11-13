@@ -52,6 +52,10 @@ defmodule RetrobeamWeb.RetroLive.NewTest do
     assert has_element?(view, "#retro_custom_columns_2")
     refute render(view) =~ "Every column needs a name."
 
+    # A forged index is ignored instead of crashing the page.
+    render_click(view, "remove_column", %{"index" => "x"})
+    assert has_element?(view, "#retro_custom_columns_2")
+
     view |> element(~s|button[phx-value-index="2"]|) |> render_click()
     refute has_element?(view, "#retro_custom_columns_2")
     refute has_element?(view, "button[phx-value-index]")
