@@ -134,12 +134,13 @@ defmodule RetrobeamWeb.RetroLive.New do
     params = socket.assigns.params
     columns = params["custom_columns"]
 
-    columns =
-      if length(columns) > Template.min_custom_columns(),
-        do: List.delete_at(columns, String.to_integer(index)),
-        else: columns
-
-    {:noreply, assign_form(socket, Map.put(params, "custom_columns", columns))}
+    with {index, ""} when index >= 0 <- Integer.parse(to_string(index)),
+         true <- length(columns) > Template.min_custom_columns() do
+      columns = List.delete_at(columns, index)
+      {:noreply, assign_form(socket, Map.put(params, "custom_columns", columns))}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("save", %{"retro" => params}, socket) do

@@ -32,6 +32,11 @@ config :retrobeam, Retrobeam.Mailer, adapter: Swoosh.Adapters.Test
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
+# Every LiveView test connects from 127.0.0.1, so a low per-IP join limit
+# would make async tests trip over each other. Tests of the IP limit use
+# their own addresses.
+config :retrobeam, Retrobeam.Retros.JoinLimiter, ip_limit: 1_000_000
+
 # Run Oban jobs inline during tests
 config :retrobeam, Oban, testing: :inline
 

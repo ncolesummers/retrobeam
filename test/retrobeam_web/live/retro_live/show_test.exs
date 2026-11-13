@@ -46,14 +46,19 @@ defmodule RetrobeamWeb.RetroLive.ShowTest do
     assert {:ok, _view, _html} = live(conn, ~p"/retros/#{retro}")
   end
 
-  test "sends users who have not joined to the join page", %{conn: conn} do
+  test "treats retros the user hasn't joined as not found", %{conn: conn} do
     retro = retro_fixture(user_scope_fixture())
-    join_path = ~p"/retros/join/#{retro.join_code}"
 
-    assert {:error, {:live_redirect, %{to: ^join_path, flash: flash}}} =
+    assert {:error, {:live_redirect, %{to: "/retros/join", flash: joined_flash}}} =
              live(conn, ~p"/retros/#{retro}")
 
-    assert flash["info"] =~ "Join this retro"
+    assert {:error, {:live_redirect, %{to: "/retros/join", flash: unknown_flash}}} =
+             live(conn, ~p"/retros/0")
+
+    # The same answer either way, and never the retro's join code.
+    assert joined_flash == unknown_flash
+    assert joined_flash["error"] =~ "couldn't find that retro"
+    refute joined_flash["error"] =~ retro.join_code
   end
 
   test "shows a copyable join link", %{conn: conn, scope: scope} do
@@ -79,8 +84,8 @@ defmodule RetrobeamWeb.RetroLive.ShowTest do
     refute has_element?(view, "#join-link")
   end
 
-  test "redirects for unknown retros", %{conn: conn} do
-    assert {:error, {:live_redirect, %{to: "/retros", flash: flash}}} = live(conn, ~p"/retros/0")
-    assert flash["error"] =~ "doesn't exist"
+  test "an id outside the bigint range is not found, not a crash", %{conn: conn} do
+    assert {:error, {:live_redirect, %{to: "/retros/join"}}} =
+             live(conn, "/retros/99999999999999999999")
   end
 end

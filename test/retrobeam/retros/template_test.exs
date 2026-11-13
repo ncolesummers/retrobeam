@@ -109,6 +109,38 @@ defmodule Retrobeam.Retros.TemplateTest do
       assert Template.columns("mad_sad_glad", []) == {:ok, Template.columns(:mad_sad_glad)}
     end
 
+    test "ignores zero-width characters and Unicode forms" do
+      assert Template.columns(:custom, ["\u200B", "Wins"]) == {:error, :blank_column_name}
+
+      assert Template.columns(:custom, ["Wins", "Wins\u200B"]) ==
+               {:error, :duplicate_column_names}
+
+      nfc = "Caf\u00E9"
+      nfd = "Cafe\u0301"
+      assert Template.columns(:custom, [nfc, nfd]) == {:error, :duplicate_column_names}
+
+      assert {:ok, [%{name: ^nfc}, %{name: "Wins"}]} =
+               Template.columns(:custom, [nfd, "Wins\u200B"])
+    end
+
+    test "keeps joiners, so emoji sequences still render" do
+      family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}"
+      assert {:ok, [%{name: ^family}, _]} = Template.columns(:custom, [family, "Wins"])
+      assert Template.columns(:custom, ["\u200D", "Wins"]) == {:error, :blank_column_name}
+    end
+
+    test "caps codepoints so a name always fits its varchar column" do
+      family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}"
+      assert String.length(family) == 1
+
+      # 40 graphemes, but 280 codepoints.
+      long = String.duplicate(family, 40)
+      assert String.length(long) == 40
+      assert Template.columns(:custom, [long, "Wins"]) == {:error, :column_name_too_long}
+
+      assert {:ok, _} = Template.columns(:custom, [String.duplicate(family, 36), "Wins"])
+    end
+
     test "rejects an unknown template" do
       assert Template.columns(:nope, []) == {:error, :unknown_template}
       assert Template.columns("nope", []) == {:error, :unknown_template}
@@ -116,6 +148,9 @@ defmodule Retrobeam.Retros.TemplateTest do
   end
 
   describe "keys/0 and fetch/1" do
+    # Pinned on purpose: these keys are the Ecto.Enum values of a retro's
+    # template field, so renaming or removing one breaks loading old retros.
+    # Add new keys; never rename or remove existing ones.
     test "keys lists every template, custom last" do
       assert Template.keys() == [
                :start_stop_continue,
