@@ -22,6 +22,16 @@ defmodule Retrobeam.Retros.Events do
   @doc "The topic for events only the facilitator should see."
   def facilitator_topic(retro_id), do: "retro:#{retro_id}:facilitator"
 
+  ## Events
+
+  @doc "The retro moved to a new phase. Carries the updated retro."
+  def phase_changed(%Retrobeam.Retros.RetroSession{} = retro), do: {:phase_changed, retro}
+
+  @doc "The retro's options or `ended_at` changed. Carries the updated retro."
+  def retro_updated(%Retrobeam.Retros.RetroSession{} = retro), do: {:retro_updated, retro}
+
+  ## PubSub
+
   @doc "Subscribes the calling process to a retro's board events."
   def subscribe(retro_id), do: Phoenix.PubSub.subscribe(@pubsub, topic(retro_id))
 
