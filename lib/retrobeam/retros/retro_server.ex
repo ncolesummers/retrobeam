@@ -17,13 +17,24 @@ defmodule Retrobeam.Retros.RetroServer do
   started on demand under `Retrobeam.Retros.SessionSupervisor`. A server
   monitors the LiveViews that `join/2` it and stops itself after
   `:idle_timeout` milliseconds (30 minutes by default) with none connected.
+
+  When a server starts, including a restart after a crash, it broadcasts
+  `{:retro_server_started, retro_id}` on the retro's topic. Subscribers
+  answer with `join/2`, so viewers that were connected to a crashed server
+  are watched again and the restarted server doesn't stop as idle under
+  them.
+
+  If loading the retro raises (for example while Postgres is down), `init`
+  returns `:ignore` rather than crashing. A failed restart then doesn't
+  count towards the supervisor's restart limit, so one retro's trouble
+  can't take the other retros' servers down with it.
   """
   use GenServer, restart: :transient
 
   import Ecto.Query, warn: false
 
   alias Retrobeam.Repo
-  alias Retrobeam.Retros.{RetroParticipation, RetroSession}
+  alias Retrobeam.Retros.{Events, RetroParticipation, RetroSession}
 
   @registry Retrobeam.Retros.Registry
   @supervisor Retrobeam.Retros.SessionSupervisor
@@ -50,9 +61,9 @@ defmodule Retrobeam.Retros.RetroServer do
 
   Safe to call from many processes at once: the registry makes sure only
   one server runs per retro. Returns `{:error, :not_found}` when no retro
-  has that id.
+  has that id and `{:error, :unavailable}` when its state can't be loaded.
   """
-  @spec ensure_started(integer()) :: {:ok, pid()} | {:error, :not_found}
+  @spec ensure_started(integer()) :: {:ok, pid()} | {:error, :not_found | :unavailable}
   def ensure_started(retro_id), do: ensure_started(retro_id, 3)
 
   defp ensure_started(retro_id, attempts) do
@@ -75,8 +86,9 @@ defmodule Retrobeam.Retros.RetroServer do
               do: {:ok, pid},
               else: ensure_started(retro_id, attempts - 1)
 
-          {:error, :not_found} ->
-            {:error, :not_found}
+          # init/1 couldn't load the retro.
+          :ignore ->
+            {:error, if(retro_exists?(retro_id), do: :unavailable, else: :not_found)}
 
           {:error, reason} ->
             exit({reason, {__MODULE__, :ensure_started, [retro_id]}})
@@ -99,26 +111,46 @@ defmodule Retrobeam.Retros.RetroServer do
   end
 
   @doc "Returns the retro's cached state, starting the server if needed."
-  @spec get_state(integer()) :: {:ok, State.t()} | {:error, :not_found}
-  def get_state(retro_id), do: call(retro_id, :get_state)
+  @spec get_state(integer()) :: {:ok, State.t()} | {:error, :not_found | :unavailable}
+  def get_state(retro_id), do: read(retro_id, :get_state)
 
   @doc """
   Registers `pid` (the calling LiveView by default) as connected to the
   retro and returns the state. The server monitors `pid` and forgets it
   when it exits.
-  """
-  @spec join(integer(), pid()) :: {:ok, State.t()} | {:error, :not_found}
-  def join(retro_id, pid \\ self()), do: call(retro_id, {:join, pid})
 
-  # A server can stop (idle timeout) between the lookup and the call. In
-  # that case start a fresh one and try once more.
-  defp call(retro_id, message, retries \\ 2) do
+  Joining reloads the participant list, so people who joined the retro by
+  code after the server started are included.
+  """
+  @spec join(integer(), pid()) :: {:ok, State.t()} | {:error, :not_found | :unavailable}
+  def join(retro_id, pid \\ self()), do: read(retro_id, {:join, pid})
+
+  # A server can stop between the lookup and the call. Then start a fresh
+  # one and try again.
+  #
+  # Reads may retry whatever stopped the server (a crash included), since
+  # repeating them changes nothing. Changes may only retry when the server
+  # stopped before handling the call: :noproc (already gone) or :normal (the
+  # idle stop, which runs between messages). A :shutdown or a crash can come
+  # while a change is half done, after its write committed, so retrying it
+  # could apply the change twice.
+  @read_retry :any
+  @change_retry [:noproc, :normal]
+
+  defp read(retro_id, message), do: call(retro_id, message, @read_retry, 2)
+
+  @doc false
+  def change_call(retro_id, message), do: call(retro_id, message, @change_retry, 2)
+
+  defp call(retro_id, message, retry_on, retries) do
     with {:ok, pid} <- ensure_started(retro_id) do
       try do
         GenServer.call(pid, message)
       catch
-        :exit, {reason, _} when reason in [:noproc, :normal, :shutdown] and retries > 0 ->
-          call(retro_id, message, retries - 1)
+        :exit, {reason, _} = exit_reason ->
+          if (retry_on == :any or reason in retry_on) and retries > 0,
+            do: call(retro_id, message, retry_on, retries - 1),
+            else: exit(exit_reason)
       end
     end
   end
@@ -136,11 +168,8 @@ defmodule Retrobeam.Retros.RetroServer do
   def init({retro_id, callers}) do
     Process.put(:"$callers", callers)
 
-    case load(retro_id) do
-      nil ->
-        {:stop, :not_found}
-
-      state ->
+    case safe_load(retro_id) do
+      {:ok, state} ->
         server = %{
           retro_id: retro_id,
           state: state,
@@ -149,7 +178,13 @@ defmodule Retrobeam.Retros.RetroServer do
           idle_ref: nil
         }
 
+        Events.broadcast(retro_id, {:retro_server_started, retro_id})
         {:ok, schedule_idle_stop(server)}
+
+      # Not found, or Postgres is unreachable. :ignore (unlike {:stop, _})
+      # doesn't count as a failed restart, so the supervisor stays up.
+      _error ->
+        :ignore
     end
   end
 
@@ -159,6 +194,8 @@ defmodule Retrobeam.Retros.RetroServer do
   end
 
   def handle_call({:join, pid}, _from, server) do
+    server = put_in(server.state.participants, load_participants(server.retro_id))
+
     server =
       if Enum.any?(server.viewers, fn {_ref, viewer} -> viewer == pid end) do
         server
@@ -186,22 +223,36 @@ defmodule Retrobeam.Retros.RetroServer do
 
   ## Helpers
 
-  defp load(retro_id) do
+  defp safe_load(retro_id) do
     case Repo.get(RetroSession, retro_id) do
       nil ->
-        nil
+        {:error, :not_found}
 
       session ->
-        participants =
-          Repo.all(
-            from p in RetroParticipation,
-              where: p.retro_session_id == ^retro_id,
-              order_by: [asc: p.joined_at, asc: p.id],
-              preload: :user
-          )
-
-        %State{retro: Repo.preload(session, :columns), participants: participants}
+        {:ok,
+         %State{
+           retro: Repo.preload(session, :columns),
+           participants: load_participants(retro_id)
+         }}
     end
+  rescue
+    # Any database failure: the server can't serve this retro right now.
+    error -> {:error, error}
+  end
+
+  defp load_participants(retro_id) do
+    Repo.all(
+      from p in RetroParticipation,
+        where: p.retro_session_id == ^retro_id,
+        order_by: [asc: p.joined_at, asc: p.id],
+        preload: :user
+    )
+  end
+
+  defp retro_exists?(retro_id) do
+    Repo.exists?(from s in RetroSession, where: s.id == ^retro_id)
+  rescue
+    _error -> true
   end
 
   defp schedule_idle_stop(%{viewers: viewers} = server) when map_size(viewers) > 0, do: server

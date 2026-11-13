@@ -30,13 +30,36 @@ defmodule RetrobeamWeb.RetroLive.ShowTest do
     assert is_pid(server)
     assert view.pid in Map.values(:sys.get_state(server).viewers)
 
-    assert Phoenix.PubSub.broadcast(
-             Retrobeam.PubSub,
-             Retrobeam.Retros.Events.topic(retro.id),
-             :unknown_event
-           ) == :ok
+    # Subscribed to the retro's topic.
+    assert Retrobeam.Retros.Events.topic(retro.id) in Registry.keys(Retrobeam.PubSub, view.pid)
 
+    # Unknown events are ignored.
+    :ok = Retrobeam.Retros.Events.broadcast(retro.id, :unknown_event)
     assert render(view) =~ retro.title
+  end
+
+  test "joins the restarted server after a crash", %{conn: conn, scope: scope} do
+    retro = retro_fixture(scope)
+    retro_id = retro.id
+    {:ok, view, _html} = live(conn, ~p"/retros/#{retro}")
+    # Let the view finish handling the server's start event first. Killing
+    # the server in the middle of a query would break the test's sandbox.
+    _ = render(view)
+
+    :ok = Retrobeam.Retros.Events.subscribe(retro_id)
+    server = Retrobeam.Retros.RetroServer.whereis(retro_id)
+    ref = Process.monitor(server)
+    Process.exit(server, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^server, :killed}
+
+    # The supervisor restarts it and the restart announces itself. The view
+    # got the same broadcast first, so after render/1 it has joined again.
+    assert_receive {:retro_server_started, ^retro_id}, 1_000
+    _ = render(view)
+
+    restarted = Retrobeam.Retros.RetroServer.whereis(retro_id)
+    assert is_pid(restarted) and restarted != server
+    assert view.pid in Map.values(:sys.get_state(restarted).viewers)
   end
 
   test "lets joined participants open the retro", %{conn: conn, user: user} do
